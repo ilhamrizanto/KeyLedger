@@ -463,8 +463,8 @@ export function renderLanding(opts: LandingOptions): string {
 
   <footer class="ar-footer">
     <div class="ar-footer-inner mono">
-      <span>KEYLEDGER · CRYPTOGRAPHIC 2FA CUSTODY LEDGER</span>
-      <div style="display:flex;gap:1.5rem">
+      <span>KEYLEDGER · BY <a href="https://github.com/ilhamrizanto" target="_blank" rel="noopener" style="text-decoration:underline">ILHAM RIZANTO</a></span>
+      <div style="display:flex;gap:1.5rem;flex-wrap:wrap">
         <a href="https://github.com/token2/TOTPVault" target="_blank" rel="noopener">UPSTREAM: TOKEN2 SWITZERLAND</a>
         <a href="https://github.com/ilhamrizanto/KeyLedger" target="_blank" rel="noopener">LICENSE: GPL-3.0</a>
       </div>

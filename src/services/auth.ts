@@ -280,12 +280,15 @@ export async function findOrCreateOAuthUser(data: OAuthUserInput, env: Env): Pro
       .run();
     userId = Number(res.meta.last_row_id);
 
-    // Resolve pending shares
-    await env.DB.prepare(
-      'UPDATE profile_shares SET shared_with_user_id = ? WHERE LOWER(shared_with_email) = ? AND shared_with_user_id IS NULL'
-    )
-      .bind(userId, email)
-      .run();
+    // Resolve pending shares & group memberships
+    await env.DB.batch([
+      env.DB.prepare(
+        'UPDATE profile_shares SET shared_with_user_id = ? WHERE LOWER(shared_with_email) = ? AND shared_with_user_id IS NULL'
+      ).bind(userId, email),
+      env.DB.prepare(
+        'UPDATE group_members SET member_user_id = ? WHERE LOWER(member_email) = ? AND member_user_id IS NULL'
+      ).bind(userId, email),
+    ]);
   }
 
   // Upsert oauth_identities

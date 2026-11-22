@@ -82,9 +82,14 @@ async function canEditProfile(profileId: number, userId: number, env: Env): Prom
     `SELECT 1 AS ok FROM otp_profiles WHERE id = ? AND user_id = ?
      UNION
      SELECT 1 AS ok FROM profile_shares WHERE profile_id = ? AND shared_with_user_id = ? AND can_edit = 1
+     UNION
+     SELECT 1 AS ok
+     FROM profile_group_shares pgs
+     JOIN group_members gm ON gm.group_id = pgs.group_id
+     WHERE pgs.profile_id = ? AND gm.member_user_id = ? AND pgs.can_edit = 1
      LIMIT 1`
   )
-    .bind(profileId, userId, profileId, userId)
+    .bind(profileId, userId, profileId, userId, profileId, userId)
     .first<{ ok: number }>();
   return Boolean(row);
 }
@@ -139,6 +144,7 @@ export async function deleteProfile(profileId: number, userId: number, env: Env)
   if (!existing) return false;
 
   await env.DB.batch([
+    env.DB.prepare('DELETE FROM profile_group_shares WHERE profile_id = ?').bind(profileId),
     env.DB.prepare('DELETE FROM profile_shares WHERE profile_id = ?').bind(profileId),
     env.DB.prepare('DELETE FROM otp_profiles WHERE id = ? AND user_id = ?').bind(profileId, userId),
   ]);
@@ -149,14 +155,31 @@ export async function getProfile(profileId: number, userId: number, env: Env): P
   return env.DB.prepare(
     `SELECT p.*, u.name AS owner_name, u.email AS owner_email,
             CASE WHEN p.user_id = ? THEN 1 ELSE 0 END AS is_owner,
-            COALESCE(s.can_edit, CASE WHEN p.user_id = ? THEN 1 ELSE 0 END) AS can_edit
+            CASE
+              WHEN p.user_id = ? THEN 1
+              WHEN COALESCE(s.can_edit, 0) = 1 THEN 1
+              WHEN EXISTS (
+                SELECT 1 FROM profile_group_shares pgs
+                JOIN group_members gm ON gm.group_id = pgs.group_id
+                WHERE pgs.profile_id = p.id AND gm.member_user_id = ? AND pgs.can_edit = 1
+              ) THEN 1
+              ELSE 0
+            END AS can_edit
      FROM otp_profiles p
      JOIN users u ON u.id = p.user_id
      LEFT JOIN profile_shares s ON s.profile_id = p.id AND s.shared_with_user_id = ?
-     WHERE p.id = ? AND (p.user_id = ? OR s.shared_with_user_id = ?)
+     WHERE p.id = ? AND (
+       p.user_id = ?
+       OR s.shared_with_user_id = ?
+       OR EXISTS (
+         SELECT 1 FROM profile_group_shares pgs
+         JOIN group_members gm ON gm.group_id = pgs.group_id
+         WHERE pgs.profile_id = p.id AND gm.member_user_id = ?
+       )
+     )
      LIMIT 1`
   )
-    .bind(userId, userId, userId, profileId, userId, userId)
+    .bind(userId, userId, userId, userId, profileId, userId, userId, userId)
     .first<OtpProfile>();
 }
 
@@ -164,14 +187,29 @@ export async function listProfilesForUser(userId: number, env: Env): Promise<Otp
   const res = await env.DB.prepare(
     `SELECT p.*, u.name AS owner_name, u.email AS owner_email,
             CASE WHEN p.user_id = ? THEN 1 ELSE 0 END AS is_owner,
-            COALESCE(s.can_edit, CASE WHEN p.user_id = ? THEN 1 ELSE 0 END) AS can_edit
+            CASE
+              WHEN p.user_id = ? THEN 1
+              WHEN COALESCE(s.can_edit, 0) = 1 THEN 1
+              WHEN EXISTS (
+                SELECT 1 FROM profile_group_shares pgs
+                JOIN group_members gm ON gm.group_id = pgs.group_id
+                WHERE pgs.profile_id = p.id AND gm.member_user_id = ? AND pgs.can_edit = 1
+              ) THEN 1
+              ELSE 0
+            END AS can_edit
      FROM otp_profiles p
      JOIN users u ON u.id = p.user_id
      LEFT JOIN profile_shares s ON s.profile_id = p.id AND s.shared_with_user_id = ?
-     WHERE p.user_id = ? OR s.shared_with_user_id = ?
+     WHERE p.user_id = ?
+        OR s.shared_with_user_id = ?
+        OR EXISTS (
+          SELECT 1 FROM profile_group_shares pgs
+          JOIN group_members gm ON gm.group_id = pgs.group_id
+          WHERE pgs.profile_id = p.id AND gm.member_user_id = ?
+        )
      ORDER BY (p.user_id = ?) DESC, p.name ASC`
   )
-    .bind(userId, userId, userId, userId, userId, userId)
+    .bind(userId, userId, userId, userId, userId, userId, userId, userId)
     .all<OtpProfile>();
   return res.results ?? [];
 }
@@ -263,10 +301,16 @@ export async function exportProfilesForUser(userId: number, env: Env) {
     `SELECT p.id, p.name, p.secret_encrypted, p.algorithm, p.digits, p.period
      FROM otp_profiles p
      LEFT JOIN profile_shares s ON s.profile_id = p.id AND s.shared_with_user_id = ?
-     WHERE p.user_id = ? OR (s.shared_with_user_id = ? AND s.can_edit = 1)
+     WHERE p.user_id = ?
+        OR (s.shared_with_user_id = ? AND s.can_edit = 1)
+        OR EXISTS (
+          SELECT 1 FROM profile_group_shares pgs
+          JOIN group_members gm ON gm.group_id = pgs.group_id
+          WHERE pgs.profile_id = p.id AND gm.member_user_id = ? AND pgs.can_edit = 1
+        )
      ORDER BY p.id ASC`
   )
-    .bind(userId, userId, userId)
+    .bind(userId, userId, userId, userId)
     .all<OtpProfile>();
 
   const rows = res.results ?? [];

@@ -68,11 +68,14 @@ export async function findOrCreateMagicLinkUser(emailInput: string, env: Env): P
     const res = await env.DB.prepare('INSERT INTO users (email, name) VALUES (?, ?)').bind(email, email).run();
     userId = Number(res.meta.last_row_id);
 
-    await env.DB.prepare(
-      'UPDATE profile_shares SET shared_with_user_id = ? WHERE LOWER(shared_with_email) = ? AND shared_with_user_id IS NULL'
-    )
-      .bind(userId, email)
-      .run();
+    await env.DB.batch([
+      env.DB.prepare(
+        'UPDATE profile_shares SET shared_with_user_id = ? WHERE LOWER(shared_with_email) = ? AND shared_with_user_id IS NULL'
+      ).bind(userId, email),
+      env.DB.prepare(
+        'UPDATE group_members SET member_user_id = ? WHERE LOWER(member_email) = ? AND member_user_id IS NULL'
+      ).bind(userId, email),
+    ]);
   } else {
     userId = existing.id;
   }

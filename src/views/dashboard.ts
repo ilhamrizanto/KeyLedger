@@ -1,6 +1,20 @@
 import { OtpProfile, User } from '../types';
-import { escapeHtml, formatOtpCode } from '../lib/html';
+import { escapeAttr, escapeHtml, formatOtpCode } from '../lib/html';
 import { renderBrandMark, renderLayout } from './layout';
+
+function renderUserAvatar(name: string | null | undefined, email: string, avatarUrl: string | null | undefined, size = 34): string {
+  if (avatarUrl) {
+    return `<img src="${escapeAttr(avatarUrl)}" alt="${escapeAttr(name || email)}" width="${size}" height="${size}" referrerpolicy="no-referrer" style="width:${size}px;height:${size}px;object-fit:cover;border:1px solid var(--rule);border-radius:var(--r-sharp);flex-shrink:0;display:block">`;
+  }
+  const source = (name || email || 'K').trim();
+  const initials = source
+    .split(/[\s@._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]!.toUpperCase())
+    .join('') || 'K';
+  return `<span class="mono" aria-hidden="true" style="width:${size}px;height:${size}px;display:inline-flex;align-items:center;justify-content:center;background:var(--surface);border:1px solid var(--rule);border-radius:var(--r-sharp);font-size:${Math.round(size * 0.36)}px;font-weight:700;color:var(--ink-2);flex-shrink:0">${escapeHtml(initials)}</span>`;
+}
 
 function renderLedgerRows(profiles: OtpProfile[]): string {
   return profiles
@@ -79,8 +93,9 @@ export function renderDashboard(
 ): string {
   const viewTitles: Record<string, string> = {
     tokens: 'Safe-Deposit Ledger : KeyLedger',
+    groups: 'Custody Groups : KeyLedger',
     access: 'Delegation Audit : KeyLedger',
-    whitelist: 'Clearance Directory : KeyLedger',
+    whitelist: 'Custodian Directory : KeyLedger',
   };
   const pageTitle = viewTitles[currentView] ?? 'Safe-Deposit Ledger : KeyLedger';
   const isAdmin = Boolean(user.is_admin);
@@ -625,6 +640,7 @@ export function renderDashboard(
     padding-bottom: 0;
   }
   #view-tokens:not([style*="display:none"]):not([style*="display: none"]),
+  #view-groups:not([style*="display:none"]):not([style*="display: none"]),
   #view-access:not([style*="display:none"]):not([style*="display: none"]),
   #view-whitelist:not([style*="display:none"]):not([style*="display: none"]) {
     display: flex;
@@ -882,22 +898,28 @@ export function renderDashboard(
         <span><span style="color:var(--ink-3);margin-right:0.45rem">01</span>LEDGER</span>
         <span class="stamp">${profiles.length}</span>
       </button>
+      <button type="button" class="lg-sb-btn ${currentView === 'groups' ? 'active' : ''}" onclick="switchView('groups')">
+        <span><span style="color:var(--ink-3);margin-right:0.45rem">02</span>GROUPS</span>
+      </button>
       ${
         isAdmin
           ? `<button type="button" class="lg-sb-btn ${currentView === 'access' ? 'active' : ''}" onclick="switchView('access')">
-               <span><span style="color:var(--ink-3);margin-right:0.45rem">02</span>AUDIT</span>
+               <span><span style="color:var(--ink-3);margin-right:0.45rem">03</span>AUDIT</span>
              </button>
              <button type="button" class="lg-sb-btn ${currentView === 'whitelist' ? 'active' : ''}" onclick="switchView('whitelist')">
-               <span><span style="color:var(--ink-3);margin-right:0.45rem">03</span>ROLES</span>
+               <span><span style="color:var(--ink-3);margin-right:0.45rem">04</span>ROLES</span>
              </button>`
           : ''
       }
     </nav>
 
     <div class="lg-sb-footer">
-      <div class="lg-sb-user">
-        <div style="font-size:0.8125rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(user.name || 'Custodian')}</div>
-        <div class="mono" style="font-size:0.68rem;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(user.email)}</div>
+      <div class="lg-sb-user" style="display:flex;align-items:center;gap:0.65rem">
+        ${renderUserAvatar(user.name, user.email, user.avatar_url, 34)}
+        <div style="min-width:0;flex:1">
+          <div style="font-size:0.8125rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(user.name || 'Custodian')}</div>
+          <div class="mono" style="font-size:0.68rem;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(user.email)}</div>
+        </div>
       </div>
       <div class="lg-sb-controls">
         <button type="button" class="lg-sb-ctrl" onclick="toggleTheme(event)" aria-label="Switch daylight or night ledger theme">
@@ -905,20 +927,26 @@ export function renderDashboard(
         </button>
       </div>
       <a href="/auth/logout" class="lg-sb-logout">SIGN OUT</a>
+      <div class="mono" style="padding:0.45rem 1.25rem;border-top:1px solid var(--rule);font-size:0.62rem;color:var(--ink-3);text-align:center;letter-spacing:0.04em">
+        BY <a href="https://github.com/ilhamrizanto" target="_blank" rel="noopener" style="text-decoration:underline">ILHAM RIZANTO</a>
+      </div>
     </div>
   </aside>
 
   <!-- Mobile Top Bar -->
   <header class="lg-mob-topbar">
-    <a href="/" style="display:inline-flex;align-items:center;gap:0.5rem;padding:0 1rem;font-weight:700">
+    <a href="/" style="display:inline-flex;align-items:center;gap:0.5rem;padding:0 0.875rem;font-weight:700">
       ${renderBrandMark(22)}
       <span class="mono" style="font-size:0.8125rem;letter-spacing:0.05em">KEY<span style="color:var(--accent)">LEDGER</span></span>
     </a>
     <div style="display:flex;align-items:stretch">
-      <button type="button" class="lg-sb-ctrl" onclick="toggleTheme(event)" style="border-left:1px solid var(--rule);border-right:1px solid var(--rule);padding:0 0.875rem">
+      <div style="display:inline-flex;align-items:center;padding:0 0.5rem;border-left:1px solid var(--rule)">
+        ${renderUserAvatar(user.name, user.email, user.avatar_url, 26)}
+      </div>
+      <button type="button" class="lg-sb-ctrl" onclick="toggleTheme(event)" style="border-left:1px solid var(--rule);border-right:1px solid var(--rule);padding:0 0.75rem">
         <span data-theme-label>DAY</span>
       </button>
-      <a href="/auth/logout" class="lg-sb-logout" style="padding:0 0.875rem">OUT</a>
+      <a href="/auth/logout" class="lg-sb-logout" style="padding:0 0.75rem">OUT</a>
     </div>
   </header>
 
@@ -976,10 +1004,27 @@ export function renderDashboard(
       }
     </section>
 
+    <!-- ── VIEW 02: DYNAMIC CUSTODY GROUPS ── -->
+    <section id="view-groups" style="${currentView !== 'groups' ? 'display:none' : ''}">
+      <div class="lg-masthead">
+        <div>
+          <div class="lg-kicker mono">TEAM DELEGATION · DYNAMIC ACCESS</div>
+          <h2 class="lg-h1 serif">Custody Groups.</h2>
+        </div>
+        <button type="button" class="btn btn-primary btn-sm mono" onclick="openGroupModal()">
+          <span>+ NEW GROUP</span>
+        </button>
+      </div>
+
+      <div id="groups-list" class="lg-scroll-region" style="padding:1rem;display:flex;flex-direction:column;gap:0.875rem">
+        <div class="mono" style="font-size:0.78rem;color:var(--ink-3)">LOADING CUSTODY GROUPS...</div>
+      </div>
+    </section>
+
     ${
       isAdmin
         ? `
-    <!-- ── VIEW 02: DELEGATION AUDIT (ADMIN) ── -->
+    <!-- ── VIEW 03: DELEGATION AUDIT (ADMIN) ── -->
     <section id="view-access" style="${currentView !== 'access' ? 'display:none' : ''}">
       <div class="lg-masthead">
         <div>
@@ -1029,14 +1074,15 @@ export function renderDashboard(
         <table class="data-table">
           <thead>
             <tr>
+              <th>Custodian</th>
               <th>Email Identity</th>
-              <th>Display Name</th>
+              <th>Status</th>
               <th>Clearance Level</th>
               <th style="text-align:right">Action</th>
             </tr>
           </thead>
           <tbody id="whitelist-body">
-            <tr><td colspan="4" class="mono" style="color:var(--ink-3)">LOADING DIRECTORY...</td></tr>
+            <tr><td colspan="5" class="mono" style="color:var(--ink-3)">LOADING DIRECTORY...</td></tr>
           </tbody>
         </table>
       </div>
@@ -1048,6 +1094,7 @@ export function renderDashboard(
   <!-- Mobile Bottom Navigation -->
   <nav class="lg-mob-nav" aria-label="Mobile navigation">
     <button type="button" class="lg-mob-btn ${currentView === 'tokens' ? 'active' : ''}" onclick="switchView('tokens')">LEDGER</button>
+    <button type="button" class="lg-mob-btn ${currentView === 'groups' ? 'active' : ''}" onclick="switchView('groups')">GROUPS</button>
     ${
       isAdmin
         ? `<button type="button" class="lg-mob-btn ${currentView === 'access' ? 'active' : ''}" onclick="switchView('access')">AUDIT</button>
@@ -1083,8 +1130,23 @@ export function renderDashboard(
       </button>
     </div>
 
-    <!-- Inline Collaborator Sharing (Owner Only) -->
+    <!-- Inline Collaborator & Group Sharing (Owner Only) -->
     <div id="dr-share-section" style="border-top:1px solid var(--rule);padding-top:1.25rem">
+      <div class="field-label">DELEGATE TO CUSTODY GROUP</div>
+      <form onsubmit="submitGroupShare(event)" style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:1rem">
+        <div style="display:flex;gap:0.5rem">
+          <select id="sf-group-id" class="select mono" style="flex:1">
+            <option value="">Select a group...</option>
+          </select>
+          <button type="submit" class="btn btn-secondary btn-sm mono">SHARE GROUP</button>
+        </div>
+        <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.78rem;color:var(--ink-2)">
+          <input id="sf-group-can-edit" type="checkbox">
+          <span>Grant metadata edit clearance to group</span>
+        </label>
+      </form>
+      <div id="sf-group-list" class="mono" style="display:flex;flex-direction:column;gap:0.4rem;font-size:0.78rem;color:var(--ink-3);margin-bottom:1.25rem"></div>
+
       <div class="field-label">DELEGATE COLLABORATOR ACCESS</div>
       <form onsubmit="submitShare(event)" style="display:flex;flex-direction:column;gap:0.625rem;margin-bottom:1rem">
         <input type="hidden" id="sf-profile-id" value="">
@@ -1201,6 +1263,34 @@ export function renderDashboard(
   </div>
 </div>
 
+<!-- Create Custody Group Modal -->
+<div id="group-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="group-modal-title">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <h2 id="group-modal-title" class="modal-title">Create Custody Group.</h2>
+      <button type="button" class="btn btn-secondary btn-sm mono" onclick="closeModal('group-modal')" aria-label="Close dialog">ESC</button>
+    </div>
+    <form onsubmit="submitGroup(event)" style="display:flex;flex-direction:column;gap:0.875rem">
+      <div>
+        <label for="gf-name" class="field-label">Group Name *</label>
+        <input id="gf-name" type="text" class="input" required placeholder="e.g. DevOps Team, Finance">
+      </div>
+      <div>
+        <label for="gf-desc" class="field-label">Description</label>
+        <input id="gf-desc" type="text" class="input" placeholder="Optional purpose">
+      </div>
+      <div>
+        <label for="gf-members" class="field-label">Member Emails (comma or newline separated)</label>
+        <textarea id="gf-members" class="textarea mono" rows="3" placeholder="alice@company.com, bob@company.com"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary mono" onclick="closeModal('group-modal')">CANCEL</button>
+        <button type="submit" class="btn btn-primary mono">CREATE GROUP</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Assign Role Modal (Admin) -->
 <div id="role-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="role-modal-title">
   <div class="modal-panel">
@@ -1299,7 +1389,11 @@ window.openDossier = function (id) {
   document.getElementById('dr-edit-btn').style.display = canEdit ? '' : 'none';
   document.getElementById('dr-hold-del').style.display = isOwner ? '' : 'none';
 
-  if (isOwner) loadShareList(dossierId);
+  if (isOwner) {
+    loadShareList(dossierId);
+    loadProfileGroupShares(dossierId);
+    populateGroupSelect();
+  }
 
   document.getElementById('dossier-backdrop').classList.add('is-open');
   document.getElementById('dossier-drawer').classList.add('is-open');
@@ -1393,7 +1487,7 @@ window.copyCode = function (id) {
 window.switchView = function (view) {
   activeView = view;
   closeDossier();
-  ['tokens', 'access', 'whitelist'].forEach(function (v) {
+  ['tokens', 'groups', 'access', 'whitelist'].forEach(function (v) {
     var sec = document.getElementById('view-' + v);
     if (sec) sec.style.display = v === view ? '' : 'none';
   });
@@ -1401,6 +1495,7 @@ window.switchView = function (view) {
     var txt = btn.getAttribute('onclick') || '';
     btn.classList.toggle('active', txt.indexOf("'" + view + "'") !== -1);
   });
+  if (view === 'groups') loadGroupsView();
   if (view === 'access' && IS_ADMIN) loadAccessView();
   if (view === 'whitelist' && IS_ADMIN) loadRolesView();
 };
@@ -1749,6 +1844,201 @@ function loadAccessView() {
     });
 }
 
+function avatarHtmlClient(name, email, avatarUrl, size) {
+  var sz = size || 28;
+  if (avatarUrl) {
+    return '<img src="' + escapeStr(avatarUrl) + '" alt="' + escapeStr(name || email) + '" width="' + sz + '" height="' + sz + '" referrerpolicy="no-referrer" style="width:' + sz + 'px;height:' + sz + 'px;object-fit:cover;border:1px solid var(--rule);border-radius:var(--r-sharp);flex-shrink:0;display:block">';
+  }
+  var src = String(name || email || 'K').trim();
+  var parts = src.split(/[\\s@._-]+/).filter(Boolean);
+  var ini = parts.slice(0, 2).map(function (p) { return p.charAt(0).toUpperCase(); }).join('') || 'K';
+  return '<span class="mono" style="width:' + sz + 'px;height:' + sz + 'px;display:inline-flex;align-items:center;justify-content:center;background:var(--surface-sub);border:1px solid var(--rule);border-radius:var(--r-sharp);font-size:' + Math.round(sz * 0.38) + 'px;font-weight:700;color:var(--ink-2);flex-shrink:0">' + escapeStr(ini) + '</span>';
+}
+
+function populateGroupSelect() {
+  var sel = document.getElementById('sf-group-id');
+  if (!sel) return;
+  fetch('/api/groups')
+    .then(function (r) { return r.json(); })
+    .then(function (groups) {
+      sel.innerHTML = '<option value="">Select a group...</option>';
+      (groups || []).forEach(function (g) {
+        var opt = document.createElement('option');
+        opt.value = String(g.id);
+        opt.textContent = g.name + ' (' + (g.members ? g.members.length : 0) + ' members)';
+        sel.appendChild(opt);
+      });
+    });
+}
+
+function loadProfileGroupShares(profileId) {
+  var list = document.getElementById('sf-group-list');
+  if (!list) return;
+  list.textContent = '';
+  fetch('/api/profiles/' + profileId + '/group-shares')
+    .then(function (r) { return r.json(); })
+    .then(function (rows) {
+      if (!rows || !rows.length) { list.textContent = 'NO GROUPS DELEGATED.'; return; }
+      list.innerHTML = '';
+      rows.forEach(function (gs) {
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding:0.5rem 0.625rem;background:var(--surface-sub);border:1px solid var(--rule)';
+        var info = document.createElement('span');
+        info.textContent = gs.group_name + ' (' + gs.member_count + ') ' + (gs.can_edit ? '[EDIT]' : '[READ]');
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-danger btn-sm mono';
+        btn.textContent = 'REVOKE';
+        btn.onclick = function () {
+          fetch('/api/profiles/' + profileId + '/group-shares', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+            body: JSON.stringify({ group_id: gs.group_id }),
+          }).then(function () { loadProfileGroupShares(profileId); });
+        };
+        row.appendChild(info);
+        row.appendChild(btn);
+        list.appendChild(row);
+      });
+    });
+}
+
+window.submitGroupShare = function (e) {
+  e.preventDefault();
+  var pid = document.getElementById('sf-profile-id').value;
+  var gid = Number(document.getElementById('sf-group-id').value || 0);
+  if (!gid) { window.showToast('SELECT A GROUP FIRST', 'error'); return; }
+  fetch('/api/profiles/' + pid + '/group-shares', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+    body: JSON.stringify({
+      group_id: gid,
+      can_edit: document.getElementById('sf-group-can-edit').checked,
+    }),
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (d.error) { window.showToast(d.error, 'error'); return; }
+      loadProfileGroupShares(pid);
+      window.showToast('GROUP CLEARANCE GRANTED', 'success');
+    });
+};
+
+window.openGroupModal = function () {
+  document.getElementById('gf-name').value = '';
+  document.getElementById('gf-desc').value = '';
+  document.getElementById('gf-members').value = '';
+  openModal('group-modal');
+};
+
+window.submitGroup = function (e) {
+  e.preventDefault();
+  fetch('/api/groups', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+    body: JSON.stringify({
+      name: document.getElementById('gf-name').value.trim(),
+      description: document.getElementById('gf-desc').value.trim(),
+      members: document.getElementById('gf-members').value,
+    }),
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (d.error) { window.showToast(d.error, 'error'); return; }
+      closeModal('group-modal');
+      loadGroupsView();
+      window.showToast('CUSTODY GROUP CREATED', 'success');
+    });
+};
+
+function loadGroupsView() {
+  var container = document.getElementById('groups-list');
+  if (!container) return;
+  fetch('/api/groups')
+    .then(function (r) { return r.json(); })
+    .then(function (groups) {
+      container.innerHTML = '';
+      if (!groups || !groups.length) {
+        container.innerHTML = '<div style="padding:3rem 1.5rem;text-align:center;border:1px solid var(--rule);background:var(--surface)"><div class="mono" style="font-size:0.72rem;color:var(--ink-3);margin-bottom:0.4rem">00 GROUPS</div><h3 class="serif" style="font-size:1.75rem;margin-bottom:0.5rem">No custody groups yet.</h3><p style="font-size:0.85rem;color:var(--ink-2);margin-bottom:1.25rem">Create a group to share TOTP records with multiple teammates at once.</p><button type="button" class="btn btn-primary btn-sm mono" onclick="openGroupModal()">+ NEW GROUP</button></div>';
+        return;
+      }
+      groups.forEach(function (g) {
+        var card = document.createElement('article');
+        card.style.cssText = 'background:var(--surface);border:1px solid var(--rule);border-left:3px solid ' + (g.is_owner ? 'var(--rule-strong)' : 'var(--accent)') + ';border-radius:var(--r-sharp);padding:1rem';
+        var membersHtml = (g.members || []).map(function (m) {
+          var rmBtn = g.is_owner
+            ? '<button type="button" class="mono" data-rm-group="' + g.id + '" data-rm-email="' + escapeStr(m.member_email) + '" style="border:none;background:transparent;color:var(--danger);font-weight:700;padding:0 0.25rem;font-size:0.75rem" aria-label="Remove ' + escapeStr(m.member_email) + '">×</button>'
+            : '';
+          return '<span class="stamp" style="display:inline-flex;align-items:center;gap:0.35rem">' + escapeStr(m.member_email) + rmBtn + '</span>';
+        }).join('');
+        if (!membersHtml) membersHtml = '<span class="mono" style="font-size:0.72rem;color:var(--ink-3)">NO MEMBERS ADDED</span>';
+
+        var ownerActions = g.is_owner
+          ? '<form onsubmit="addGroupMemberInline(event,' + g.id + ')" style="display:flex;gap:0.5rem;margin-top:0.875rem;flex-wrap:wrap">' +
+              '<input type="text" class="input mono" id="gm-add-' + g.id + '" placeholder="Add email(s), comma separated" style="flex:1;min-width:200px;height:36px">' +
+              '<button type="submit" class="btn btn-secondary btn-sm mono">ADD MEMBER</button>' +
+              '<button type="button" class="btn btn-danger btn-sm mono" onclick="deleteGroupInline(' + g.id + ')">DELETE</button>' +
+            '</form>'
+          : '';
+
+        card.innerHTML =
+          '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:0.75rem;margin-bottom:0.5rem">' +
+            '<div>' +
+              '<div class="mono" style="font-size:0.65rem;color:var(--ink-3);letter-spacing:0.06em">' + (g.is_owner ? 'OWNER' : 'MEMBER · BY ' + escapeStr(g.owner_email)) + '</div>' +
+              '<h3 class="serif" style="font-size:1.5rem;line-height:1.1">' + escapeStr(g.name) + '</h3>' +
+              (g.description ? '<p style="font-size:0.8125rem;color:var(--ink-2);margin-top:0.2rem">' + escapeStr(g.description) + '</p>' : '') +
+            '</div>' +
+            '<span class="stamp">' + (g.members ? g.members.length : 0) + ' MEMBERS</span>' +
+          '</div>' +
+          '<div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-top:0.625rem">' + membersHtml + '</div>' +
+          ownerActions;
+
+        card.querySelectorAll('[data-rm-group]').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            var gid = Number(btn.getAttribute('data-rm-group'));
+            var em = btn.getAttribute('data-rm-email');
+            fetch('/api/groups/' + gid + '/members', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+              body: JSON.stringify({ email: em }),
+            }).then(function () { loadGroupsView(); });
+          });
+        });
+
+        container.appendChild(card);
+      });
+    });
+}
+
+window.addGroupMemberInline = function (e, groupId) {
+  e.preventDefault();
+  var inp = document.getElementById('gm-add-' + groupId);
+  var val = inp ? inp.value.trim() : '';
+  if (!val) return;
+  fetch('/api/groups/' + groupId + '/members', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+    body: JSON.stringify({ emails: val }),
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (d.error) { window.showToast(d.error, 'error'); return; }
+      loadGroupsView();
+      window.showToast('MEMBERS UPDATED', 'success');
+    });
+};
+
+window.deleteGroupInline = function (groupId) {
+  fetch('/api/groups/' + groupId, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+    body: JSON.stringify({}),
+  }).then(function () {
+    loadGroupsView();
+    window.showToast('GROUP DELETED', 'success');
+  });
+};
+
 function loadRolesView() {
   fetch('/api/whitelist')
     .then(function (r) { return r.json(); })
@@ -1756,21 +2046,27 @@ function loadRolesView() {
       var tbody = document.getElementById('whitelist-body');
       tbody.innerHTML = '';
       if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="4" class="mono" style="color:var(--ink-3)">NO ROLES CONFIGURED.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="mono" style="color:var(--ink-3)">NO ACCOUNTS FOUND.</td></tr>';
         return;
       }
       rows.forEach(function (u) {
         var tr = document.createElement('tr');
         var isSelf = String(u.email).toLowerCase() === CURRENT_EMAIL;
-        tr.innerHTML = '<td data-label="EMAIL IDENTITY" class="mono"><span>' + escapeStr(u.email) + '</span></td>' +
-          '<td data-label="CUSTODIAN NAME"><span>' + escapeStr(u.name || '-') + '</span></td>' +
+        var avatar = avatarHtmlClient(u.name, u.email, u.avatar_url, 28);
+        var statusBadge = u.registered
+          ? '<span class="stamp">REGISTERED</span>'
+          : '<span class="stamp" style="opacity:0.7">INVITED</span>';
+        tr.innerHTML =
+          '<td data-label="CUSTODIAN"><div style="display:inline-flex;align-items:center;gap:0.55rem">' + avatar + '<span>' + escapeStr(u.name || '-') + '</span></div></td>' +
+          '<td data-label="EMAIL IDENTITY" class="mono"><span>' + escapeStr(u.email) + '</span></td>' +
+          '<td data-label="STATUS">' + statusBadge + '</td>' +
           '<td data-label="CLEARANCE"><span class="stamp ' + (u.is_admin ? 'stamp-accent' : '') + '">' + (u.is_admin ? 'ADMINISTRATOR' : escapeStr(u.role_label || 'MEMBER')) + '</span></td>' +
           '<td data-label="ACTION" style="text-align:right">' + (isSelf ? '<span class="mono" style="font-size:0.68rem;color:var(--ink-3)">ACTIVE SESSION</span>' : '') + '</td>';
-        if (!isSelf) {
+        if (!isSelf && u.id) {
           var btn = document.createElement('button');
           btn.type = 'button';
           btn.className = 'btn btn-danger btn-sm mono';
-          btn.textContent = 'REMOVE';
+          btn.textContent = 'REMOVE ROLE';
           btn.onclick = function () {
             fetch('/api/whitelist/' + u.id, {
               method: 'DELETE',
@@ -1816,6 +2112,7 @@ function escapeStr(s) {
   return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+if (activeView === 'groups') loadGroupsView();
 if (activeView === 'access' && IS_ADMIN) loadAccessView();
 if (activeView === 'whitelist' && IS_ADMIN) loadRolesView();
 </script>

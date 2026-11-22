@@ -32,7 +32,7 @@ pageRoutes.get('/landing', (c) => {
   );
 });
 
-async function renderUserDashboard(c: Context<AppContext>, viewName: 'tokens' | 'whitelist' | 'access') {
+async function renderUserDashboard(c: Context<AppContext>, viewName: 'tokens' | 'groups' | 'whitelist' | 'access') {
   const user = c.get('user');
   if (!user) {
     return c.redirect('/');
@@ -63,6 +63,7 @@ async function renderUserDashboard(c: Context<AppContext>, viewName: 'tokens' | 
 
 pageRoutes.get('/dashboard', (c) => renderUserDashboard(c, 'tokens'));
 pageRoutes.get('/tokens', (c) => renderUserDashboard(c, 'tokens'));
+pageRoutes.get('/groups', (c) => renderUserDashboard(c, 'groups'));
 pageRoutes.get('/whitelist', (c) => renderUserDashboard(c, 'whitelist'));
 pageRoutes.get('/roles', (c) => renderUserDashboard(c, 'whitelist'));
 pageRoutes.get('/access', (c) => renderUserDashboard(c, 'access'));

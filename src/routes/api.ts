@@ -28,6 +28,16 @@ import {
   unshareProfile,
   updateProfile,
 } from '../services/profile';
+import {
+  addGroupMembers,
+  createGroup,
+  deleteGroup,
+  getProfileGroupShares,
+  listGroupsForUser,
+  removeGroupMember,
+  shareProfileWithGroup,
+  unshareProfileFromGroup,
+} from '../services/groups';
 
 export const apiRoutes = new Hono<AppContext>();
 
@@ -226,6 +236,120 @@ apiRoutes.delete('/profiles/:id/shares', async (c) => {
   return c.json({ success: ok });
 });
 
+// ── Dynamic Custody Groups ───────────────────────────────────────────────────
+
+apiRoutes.get('/groups', async (c) => {
+  const user = c.get('user')!;
+  return c.json(await listGroupsForUser(user.id, c.env));
+});
+
+apiRoutes.post('/groups', async (c) => {
+  const user = c.get('user')!;
+  const data = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!(await verifyCsrf(c, data))) {
+    return c.json({ error: 'Invalid CSRF token' }, 403);
+  }
+
+  const name = String(data.name || '').trim();
+  const description = String(data.description || '').trim();
+  const membersRaw = Array.isArray(data.members)
+    ? (data.members as string[])
+    : String(data.members || '')
+        .split(/[\s,;]+/)
+        .filter(Boolean);
+
+  try {
+    const id = await createGroup(user.id, name, description, membersRaw, c.env);
+    return c.json({ success: true, id });
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : 'Failed to create group' }, 400);
+  }
+});
+
+apiRoutes.delete('/groups/:id', async (c) => {
+  const user = c.get('user')!;
+  const data = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!(await verifyCsrf(c, data))) {
+    return c.json({ error: 'Invalid CSRF token' }, 403);
+  }
+
+  const groupId = Number(c.req.param('id'));
+  const ok = await deleteGroup(groupId, user.id, c.env);
+  return c.json({ success: ok });
+});
+
+apiRoutes.post('/groups/:id/members', async (c) => {
+  const user = c.get('user')!;
+  const data = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!(await verifyCsrf(c, data))) {
+    return c.json({ error: 'Invalid CSRF token' }, 403);
+  }
+
+  const groupId = Number(c.req.param('id'));
+  const emails = Array.isArray(data.emails)
+    ? (data.emails as string[])
+    : String(data.emails || data.email || '')
+        .split(/[\s,;]+/)
+        .filter(Boolean);
+
+  try {
+    const added = await addGroupMembers(groupId, user.id, emails, c.env);
+    return c.json({ success: true, added });
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : 'Failed to add members' }, 400);
+  }
+});
+
+apiRoutes.delete('/groups/:id/members', async (c) => {
+  const user = c.get('user')!;
+  const data = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!(await verifyCsrf(c, data))) {
+    return c.json({ error: 'Invalid CSRF token' }, 403);
+  }
+
+  const groupId = Number(c.req.param('id'));
+  const email = String(data.email || '').trim().toLowerCase();
+  const ok = await removeGroupMember(groupId, user.id, email, c.env);
+  return c.json({ success: ok });
+});
+
+apiRoutes.get('/profiles/:id/group-shares', async (c) => {
+  const user = c.get('user')!;
+  const profileId = Number(c.req.param('id'));
+  return c.json(await getProfileGroupShares(profileId, user.id, c.env));
+});
+
+apiRoutes.post('/profiles/:id/group-shares', async (c) => {
+  const user = c.get('user')!;
+  const data = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!(await verifyCsrf(c, data))) {
+    return c.json({ error: 'Invalid CSRF token' }, 403);
+  }
+
+  const profileId = Number(c.req.param('id'));
+  const groupId = Number(data.group_id || 0);
+  const canEdit = Boolean(data.can_edit);
+  if (groupId <= 0) {
+    return c.json({ error: 'Please select a valid group' }, 400);
+  }
+
+  const ok = await shareProfileWithGroup(profileId, user.id, groupId, canEdit, c.env);
+  return c.json({ success: ok });
+});
+
+apiRoutes.delete('/profiles/:id/group-shares', async (c) => {
+  const user = c.get('user')!;
+  const data = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!(await verifyCsrf(c, data))) {
+    return c.json({ error: 'Invalid CSRF token' }, 403);
+  }
+
+  const profileId = Number(c.req.param('id'));
+  const groupId = Number(data.group_id || 0);
+  const ok = await unshareProfileFromGroup(profileId, user.id, groupId, c.env);
+  return c.json({ success: ok });
+});
+
 // ── Export & Secret Generator ────────────────────────────────────────────────
 
 function csvCell(val: string | number): string {
@@ -282,12 +406,74 @@ apiRoutes.get('/generate-secret', async (c) => {
 apiRoutes.get('/whitelist', async (c) => {
   const user = c.get('user')!;
   if (!user.is_admin) {
-    return c.json({ error: 'Access denied: Only Administrators may manage the whitelist.' }, 403);
+    return c.json({ error: 'Access denied: Only Administrators may manage the directory.' }, 403);
   }
-  const res = await c.env.DB.prepare(
-    'SELECT id, email, name, role_label, is_admin, created_by_email, created_at FROM whitelist_users ORDER BY is_admin DESC, created_at ASC'
-  ).all();
-  return c.json(res.results ?? []);
+  const [usersRes, wlRes] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT u.id AS user_id, u.email, u.name, u.avatar_url, u.created_at,
+              w.id AS whitelist_id, COALESCE(w.is_admin, 0) AS is_admin, w.role_label
+       FROM users u
+       LEFT JOIN whitelist_users w ON LOWER(w.email) = LOWER(u.email)
+       ORDER BY COALESCE(w.is_admin, 0) DESC, u.created_at DESC`
+    ).all<{
+      user_id: number;
+      email: string;
+      name: string | null;
+      avatar_url: string | null;
+      created_at: string;
+      whitelist_id: number | null;
+      is_admin: number;
+      role_label: string | null;
+    }>(),
+    c.env.DB.prepare(
+      'SELECT id, email, name, role_label, is_admin, created_by_email, created_at FROM whitelist_users ORDER BY is_admin DESC, created_at ASC'
+    ).all<{
+      id: number;
+      email: string;
+      name: string;
+      role_label: string;
+      is_admin: number;
+      created_by_email: string | null;
+      created_at: string;
+    }>(),
+  ]);
+
+  const seenEmails = new Set<string>();
+  const combined: Array<Record<string, unknown>> = [];
+
+  for (const u of usersRes.results ?? []) {
+    const emailLower = u.email.toLowerCase();
+    seenEmails.add(emailLower);
+    combined.push({
+      id: u.whitelist_id,
+      user_id: u.user_id,
+      email: u.email,
+      name: u.name || '',
+      avatar_url: u.avatar_url || null,
+      role_label: u.role_label || (u.is_admin ? 'Administrator' : 'Member'),
+      is_admin: Number(u.is_admin || 0),
+      registered: 1,
+      created_at: u.created_at,
+    });
+  }
+
+  for (const w of wlRes.results ?? []) {
+    const emailLower = w.email.toLowerCase();
+    if (seenEmails.has(emailLower)) continue;
+    combined.push({
+      id: w.id,
+      user_id: null,
+      email: w.email,
+      name: w.name || '',
+      avatar_url: null,
+      role_label: w.role_label || (w.is_admin ? 'Administrator' : 'Member'),
+      is_admin: Number(w.is_admin || 0),
+      registered: 0,
+      created_at: w.created_at,
+    });
+  }
+
+  return c.json(combined);
 });
 
 apiRoutes.post('/whitelist', async (c) => {
