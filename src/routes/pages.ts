@@ -64,7 +64,9 @@ async function renderUserDashboard(c: Context<AppContext>, viewName: 'tokens' | 
 pageRoutes.get('/dashboard', (c) => renderUserDashboard(c, 'tokens'));
 pageRoutes.get('/tokens', (c) => renderUserDashboard(c, 'tokens'));
 pageRoutes.get('/whitelist', (c) => renderUserDashboard(c, 'whitelist'));
+pageRoutes.get('/roles', (c) => renderUserDashboard(c, 'whitelist'));
 pageRoutes.get('/access', (c) => renderUserDashboard(c, 'access'));
+pageRoutes.get('/audit', (c) => renderUserDashboard(c, 'access'));
 
 pageRoutes.notFound((c) => {
   const user = c.get('user');

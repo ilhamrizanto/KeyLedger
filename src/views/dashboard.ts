@@ -499,10 +499,12 @@ export function renderDashboard(
   box-shadow: var(--shadow-drawer);
   display: flex;
   flex-direction: column;
+  pointer-events: none;
   transform: translateX(100%);
   transition: transform 260ms var(--ease-drawer);
 }
 .dr-panel.is-open {
+  pointer-events: auto;
   transform: translateX(0);
 }
 
@@ -622,34 +624,76 @@ export function renderDashboard(
     background: var(--bg);
     padding-bottom: 0;
   }
-  #view-tokens:not([style*="display:none"]):not([style*="display: none"]) {
+  #view-tokens:not([style*="display:none"]):not([style*="display: none"]),
+  #view-access:not([style*="display:none"]):not([style*="display: none"]),
+  #view-whitelist:not([style*="display:none"]):not([style*="display: none"]) {
     display: flex;
     flex-direction: column;
     flex: 1;
     min-height: 0;
+    overflow: hidden;
   }
-  #view-tokens .lg-masthead,
-  #view-tokens .lg-cmdbar { flex-shrink: 0; }
-  #ledger-list {
+  .lg-masthead {
+    flex-shrink: 0;
+    padding: 0.85rem 1rem;
+    gap: 0.65rem;
+    align-items: center;
+    background: var(--surface);
+  }
+  .lg-kicker {
+    font-size: 0.62rem;
+    margin-bottom: 0.15rem;
+  }
+  .lg-h1 {
+    font-size: 1.45rem;
+  }
+  .lg-masthead-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: auto auto 1fr;
+    gap: 0.4rem;
+  }
+  .lg-masthead-actions .btn {
+    justify-content: center;
+    min-height: 36px;
+    padding: 0 0.65rem;
+    font-size: 0.68rem;
+  }
+  .lg-cmdbar {
+    flex-shrink: 0;
+    grid-template-columns: 1fr;
+    background: var(--surface);
+  }
+  .lg-filter-group {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    border-bottom: 1px solid var(--rule);
+    background: var(--surface-sub);
+  }
+  .lg-filter-btn {
+    padding: 0.6rem 0.35rem;
+    font-size: 0.68rem;
+    text-align: center;
+    justify-content: center;
+  }
+  .lg-filter-btn:last-child { border-right: none; }
+  .lg-search-cell { padding: 0 0.875rem; }
+  .lg-search-input { height: 40px; font-size: 16px; }
+
+  #token-grid,
+  .lg-scroll-region {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+    overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
-    padding: 0.75rem 0.75rem calc(68px + env(safe-area-inset-bottom));
+    overscroll-behavior: contain;
+    padding: 0.75rem;
+    background: var(--bg);
   }
-  #view-access,
-  #view-whitelist {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-    padding-bottom: calc(68px + env(safe-area-inset-bottom));
-  }
+
   .lg-mob-nav {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    flex-shrink: 0;
     z-index: 500;
     display: flex;
     align-items: stretch;
@@ -672,33 +716,140 @@ export function renderDashboard(
     justify-content: center;
   }
   .lg-mob-btn:last-child { border-right: none; }
-  .lg-mob-btn.active { background: var(--surface-sub); color: var(--accent); }
+  .lg-mob-btn.active {
+    background: var(--surface-sub);
+    color: var(--accent);
+    box-shadow: inset 0 2px 0 var(--accent);
+  }
+
+  /* ── 01 LEDGER: Swiss Pocket Passbook Cards ── */
   .lg-col-headers { display: none; }
   .lg-row {
-    grid-template-columns: 44px 1fr auto;
+    grid-template-columns: 42px 1fr auto;
     margin-bottom: 0.75rem;
     border: 1px solid var(--rule);
+    border-left: 3px solid var(--rule-strong);
     border-radius: var(--r-sharp);
-    box-shadow: 0 1px 2px rgba(18, 18, 16, 0.04);
+    background: var(--surface);
+    box-shadow: 0 2px 6px rgba(18, 18, 16, 0.05);
+    overflow: hidden;
+  }
+  .lg-row[data-owner="0"] {
+    border-left-color: var(--accent);
   }
   .lg-row:last-child { margin-bottom: 0; }
+  .lg-cell-num {
+    grid-row: 1;
+    grid-column: 1;
+    font-size: 1.1rem;
+    background: var(--surface-sub);
+    border-right: 1px solid var(--rule);
+  }
+  .lg-cell-ident {
+    grid-row: 1;
+    grid-column: 2;
+    padding: 0.65rem 0.75rem;
+    border-right: none;
+    min-width: 0;
+  }
+  .lg-issuer { font-size: 0.62rem; margin-bottom: 0.1rem; }
+  .lg-account { font-size: 0.925rem; }
   .lg-cell-meta { display: none; }
-  .lg-cell-ident { border-right: none; min-width: 0; }
-  .lg-cell-actions { grid-row: 1; grid-column: 3; border-left: 1px solid var(--rule); }
+  .lg-cell-actions {
+    grid-row: 1;
+    grid-column: 3;
+    padding: 0 0.625rem;
+    border-left: 1px solid var(--rule);
+    background: var(--surface);
+  }
   .lg-cell-code {
+    grid-row: 2;
     grid-column: 1 / -1;
     border-right: none;
     border-top: 1px solid var(--rule);
     background: var(--surface-sub);
-    padding: 0.45rem 0.875rem;
+    padding: 0.25rem 0.875rem 0.35rem;
   }
-  .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lg-copy-trigger {
+    flex: 1;
+    padding: 0.45rem 0;
+    justify-content: space-between;
+    padding-right: 0.75rem;
+  }
+  .lg-digits { font-size: 1.5rem; letter-spacing: 0.1em; }
+
+  /* ── 02 AUDIT & 03 ROLES: Compact Telemetry & Mobile Archival Cards ── */
+  .metrics-grid {
+    flex-shrink: 0;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    background: var(--surface);
+  }
+  .metric-cell {
+    padding: 0.6rem 0.35rem;
+    text-align: center;
+  }
+  .metric-num { font-size: 1.35rem; }
+  .metric-cap {
+    font-size: 0.56rem;
+    letter-spacing: 0.03em;
+    margin-top: 0.2rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .data-table,
+  .data-table tbody {
+    display: block;
+    width: 100%;
+  }
+  .data-table thead { display: none; }
+  .data-table tr {
+    display: block;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--rule-strong);
+    border-radius: var(--r-sharp);
+    margin-bottom: 0.75rem;
+    box-shadow: 0 2px 6px rgba(18, 18, 16, 0.05);
+    overflow: hidden;
+  }
+  .data-table tr:last-child { margin-bottom: 0; }
+  .data-table td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.55rem 0.875rem;
+    border-bottom: 1px solid var(--rule);
+    font-size: 0.8125rem;
+    text-align: right;
+    min-width: 0;
+  }
+  .data-table td:last-child {
+    border-bottom: none;
+    background: var(--surface-sub);
+  }
+  .data-table td::before {
+    content: attr(data-label);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    text-align: left;
+    flex-shrink: 0;
+  }
+  .data-table td > span,
+  .data-table td > strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 @media (max-width: 640px) {
-  .lg-masthead { padding: 1.25rem 1rem; }
-  .lg-cmdbar { grid-template-columns: 1fr; }
-  .lg-filter-group { border-bottom: 1px solid var(--rule); overflow-x: auto; }
   .dr-panel {
     top: auto;
     left: 0;
@@ -844,7 +995,7 @@ export function renderDashboard(
         <div class="metric-cell"><div class="metric-num serif" id="m-users">-</div><div class="metric-cap mono">ROLE RECORDS</div></div>
       </div>
 
-      <div style="overflow-x:auto">
+      <div class="lg-scroll-region" style="overflow-x:auto">
         <table class="data-table">
           <thead>
             <tr>
@@ -874,7 +1025,7 @@ export function renderDashboard(
         </button>
       </div>
 
-      <div style="overflow-x:auto">
+      <div class="lg-scroll-region" style="overflow-x:auto">
         <table class="data-table">
           <thead>
             <tr>
@@ -1576,11 +1727,11 @@ function loadAccessView() {
       }
       rows.forEach(function (r) {
         var tr = document.createElement('tr');
-        tr.innerHTML = '<td><strong>' + escapeStr(r.profile_name) + '</strong></td>' +
-          '<td class="mono">' + escapeStr(r.owner_email) + '</td>' +
-          '<td class="mono">' + escapeStr(r.shared_with_email) + '</td>' +
-          '<td><span class="stamp">' + (r.can_edit ? 'EDIT' : 'READ-ONLY') + '</span></td>' +
-          '<td style="text-align:right"></td>';
+        tr.innerHTML = '<td data-label="KEY RECORD"><strong>' + escapeStr(r.profile_name) + '</strong></td>' +
+          '<td data-label="CUSTODIAN" class="mono"><span>' + escapeStr(r.owner_email) + '</span></td>' +
+          '<td data-label="DELEGATED TO" class="mono"><span>' + escapeStr(r.shared_with_email) + '</span></td>' +
+          '<td data-label="CLEARANCE"><span class="stamp">' + (r.can_edit ? 'EDIT' : 'READ-ONLY') + '</span></td>' +
+          '<td data-label="ACTION" style="text-align:right"></td>';
         var btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'btn btn-danger btn-sm mono';
@@ -1610,11 +1761,12 @@ function loadRolesView() {
       }
       rows.forEach(function (u) {
         var tr = document.createElement('tr');
-        tr.innerHTML = '<td class="mono">' + escapeStr(u.email) + '</td>' +
-          '<td>' + escapeStr(u.name || '-') + '</td>' +
-          '<td><span class="stamp ' + (u.is_admin ? 'stamp-accent' : '') + '">' + (u.is_admin ? 'ADMINISTRATOR' : escapeStr(u.role_label || 'MEMBER')) + '</span></td>' +
-          '<td style="text-align:right"></td>';
-        if (String(u.email).toLowerCase() !== CURRENT_EMAIL) {
+        var isSelf = String(u.email).toLowerCase() === CURRENT_EMAIL;
+        tr.innerHTML = '<td data-label="EMAIL IDENTITY" class="mono"><span>' + escapeStr(u.email) + '</span></td>' +
+          '<td data-label="CUSTODIAN NAME"><span>' + escapeStr(u.name || '-') + '</span></td>' +
+          '<td data-label="CLEARANCE"><span class="stamp ' + (u.is_admin ? 'stamp-accent' : '') + '">' + (u.is_admin ? 'ADMINISTRATOR' : escapeStr(u.role_label || 'MEMBER')) + '</span></td>' +
+          '<td data-label="ACTION" style="text-align:right">' + (isSelf ? '<span class="mono" style="font-size:0.68rem;color:var(--ink-3)">ACTIVE SESSION</span>' : '') + '</td>';
+        if (!isSelf) {
           var btn = document.createElement('button');
           btn.type = 'button';
           btn.className = 'btn btn-danger btn-sm mono';

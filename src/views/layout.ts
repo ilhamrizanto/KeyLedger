@@ -390,9 +390,11 @@ a { color: inherit; text-decoration: none; }
   flex-direction: column;
   gap: 0.5rem;
   max-width: calc(100vw - 2.5rem);
+  pointer-events: none;
 }
 
 .toast-item {
+  pointer-events: auto;
   display: flex;
   align-items: center;
   gap: 0.625rem;
