@@ -647,8 +647,8 @@ export function renderDashboard(
     grid-template-columns: 48px 1fr auto;
   }
   .lg-cell-meta { display: none; }
-  .lg-cell-ident { border-right: none; }
-  .lg-cell-actions { border-left: 1px solid var(--rule); }
+  .lg-cell-ident { border-right: none; min-width: 0; }
+  .lg-cell-actions { grid-row: 1; grid-column: 3; border-left: 1px solid var(--rule); }
   .lg-cell-code {
     grid-column: 1 / -1;
     border-right: none;
