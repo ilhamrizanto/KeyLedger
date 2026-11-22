@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
+import { getCookie } from 'hono/cookie';
 import { AppContext } from '../types';
 import { checkRateLimit } from '../lib/rate-limiter';
-import { timingSafeEqualStrings } from '../lib/cookies';
+import { sha256Hex, timingSafeEqualStrings } from '../lib/cookies';
 import { generateSecret } from '../lib/totp';
 import { parseGoogleAuthMigrationUri } from '../lib/migration';
 import { isValidEmail } from '../lib/html';
@@ -16,6 +17,7 @@ import {
   getAccessOverviewMetrics,
   getAllActiveShares,
   getAllProfilesForAdmin,
+  getOwnerOtpAuthUri,
   getProfile,
   getProfileShares,
   getTokenAccessMatrix,
@@ -25,19 +27,31 @@ import {
   shareProfile,
   syncTokenShares,
   syncUserShares,
+  togglePinProfile,
   unshareProfile,
   updateProfile,
 } from '../services/profile';
 import {
   addGroupMembers,
+  adminRevokeGroupShare,
   createGroup,
   deleteGroup,
+  getAllActiveGroupShares,
   getProfileGroupShares,
   listGroupsForUser,
   removeGroupMember,
   shareProfileWithGroup,
   unshareProfileFromGroup,
 } from '../services/groups';
+import {
+  adminForceLogoutUser,
+  adminOffboardUser,
+  listAuditLogs,
+  listUserSessions,
+  recordAuditLog,
+  revokeOtherUserSessions,
+  revokeUserSession,
+} from '../services/audit';
 
 export const apiRoutes = new Hono<AppContext>();
 
@@ -152,10 +166,86 @@ apiRoutes.post('/profiles', async (c) => {
 
   try {
     const id = await createProfile(user.id, data as unknown as ProfileInput, c.env);
+    await recordAuditLog(c.env, {
+      actorUserId: user.id,
+      actorEmail: user.email,
+      action: 'PROFILE_CREATE',
+      target: String(data.name || id),
+      ipAddress: c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for') ?? '',
+    });
     return c.json({ success: true, id });
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : 'Create failed' }, 400);
   }
+});
+
+apiRoutes.post('/profiles/:id/pin', async (c) => {
+  const user = c.get('user')!;
+  const data = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!(await verifyCsrf(c, data))) {
+    return c.json({ error: 'Invalid CSRF token' }, 403);
+  }
+  const profileId = Number(c.req.param('id'));
+  try {
+    const pinned = await togglePinProfile(profileId, user.id, c.env);
+    return c.json({ success: true, pinned });
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : 'Pin failed' }, 403);
+  }
+});
+
+apiRoutes.get('/profiles/:id/qr-uri', async (c) => {
+  const user = c.get('user')!;
+  const profileId = Number(c.req.param('id'));
+  try {
+    const uri = await getOwnerOtpAuthUri(profileId, user.id, c.env);
+    await recordAuditLog(c.env, {
+      actorUserId: user.id,
+      actorEmail: user.email,
+      action: 'REVEAL_QR',
+      target: `profile#${profileId}`,
+      ipAddress: c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for') ?? '',
+    });
+    return c.json({ uri });
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : 'Access denied' }, 403);
+  }
+});
+
+// ── Active Sessions (Self-Service) ──────────────────────────────────────────
+
+apiRoutes.get('/sessions', async (c) => {
+  const user = c.get('user')!;
+  const token =
+    getCookie(c, c.env.REMEMBER_COOKIE_NAME || 'totpvault_remember') ||
+    getCookie(c, c.env.SESSION_COOKIE_NAME || 'totpvault_session');
+  const currentHash = token ? await sha256Hex(token) : null;
+  return c.json(await listUserSessions(user.id, currentHash, c.env));
+});
+
+apiRoutes.post('/sessions/revoke-others', async (c) => {
+  const user = c.get('user')!;
+  const data = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!(await verifyCsrf(c, data))) {
+    return c.json({ error: 'Invalid CSRF token' }, 403);
+  }
+  const token =
+    getCookie(c, c.env.REMEMBER_COOKIE_NAME || 'totpvault_remember') ||
+    getCookie(c, c.env.SESSION_COOKIE_NAME || 'totpvault_session');
+  const currentHash = token ? await sha256Hex(token) : null;
+  const revoked = await revokeOtherUserSessions(user.id, currentHash, c.env);
+  return c.json({ success: true, revoked });
+});
+
+apiRoutes.delete('/sessions/:id', async (c) => {
+  const user = c.get('user')!;
+  const data = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!(await verifyCsrf(c, data))) {
+    return c.json({ error: 'Invalid CSRF token' }, 403);
+  }
+  const id = Number(c.req.param('id'));
+  const ok = await revokeUserSession(id, user.id, c.env);
+  return c.json({ success: ok });
 });
 
 apiRoutes.get('/profiles/:id', async (c) => {
@@ -190,6 +280,15 @@ apiRoutes.delete('/profiles/:id', async (c) => {
 
   const profileId = Number(c.req.param('id'));
   const ok = await deleteProfile(profileId, user.id, c.env);
+  if (ok) {
+    await recordAuditLog(c.env, {
+      actorUserId: user.id,
+      actorEmail: user.email,
+      action: 'PROFILE_DELETE',
+      target: `profile#${profileId}`,
+      ipAddress: c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for') ?? '',
+    });
+  }
   return c.json({ success: ok });
 });
 
@@ -221,6 +320,16 @@ apiRoutes.post('/profiles/:id/shares', async (c) => {
   }
 
   const ok = await shareProfile(profileId, user.id, email, canEdit, c.env, canShare);
+  if (ok) {
+    await recordAuditLog(c.env, {
+      actorUserId: user.id,
+      actorEmail: user.email,
+      action: 'SHARE_GRANT',
+      target: `profile#${profileId} -> ${email}`,
+      details: `${canEdit ? 'EDIT' : 'READ'}${canShare ? '+FWD' : ''}`,
+      ipAddress: c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for') ?? '',
+    });
+  }
   return c.json({ success: ok });
 });
 
@@ -336,6 +445,16 @@ apiRoutes.post('/profiles/:id/group-shares', async (c) => {
   }
 
   const ok = await shareProfileWithGroup(profileId, user.id, groupId, canEdit, c.env, canShare);
+  if (ok) {
+    await recordAuditLog(c.env, {
+      actorUserId: user.id,
+      actorEmail: user.email,
+      action: 'GROUP_SHARE',
+      target: `profile#${profileId} -> group#${groupId}`,
+      details: `${canEdit ? 'EDIT' : 'READ'}${canShare ? '+FWD' : ''}`,
+      ipAddress: c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for') ?? '',
+    });
+  }
   return c.json({ success: ok });
 });
 
@@ -372,6 +491,13 @@ apiRoutes.get('/export-profiles', async (c) => {
 
   try {
     const rows = await exportProfilesForUser(user.id, c.env);
+    await recordAuditLog(c.env, {
+      actorUserId: user.id,
+      actorEmail: user.email,
+      action: 'EXPORT_CSV',
+      target: `${rows.length} profile(s)`,
+      ipAddress: c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for') ?? '',
+    });
     const lines = ['profile,seed,title,algorithm,digits,period'];
     for (const r of rows) {
       lines.push(
@@ -611,6 +737,114 @@ apiRoutes.post('/access/revoke-all', async (c) => {
 
 apiRoutes.get('/access/shares', async (c) => {
   return c.json(await getAllActiveShares(c.env));
+});
+
+apiRoutes.get('/access/group-shares', async (c) => {
+  return c.json(await getAllActiveGroupShares(c.env));
+});
+
+apiRoutes.post('/access/revoke-group-share', async (c) => {
+  const user = c.get('user')!;
+  const data = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!(await verifyCsrf(c, data))) return c.json({ error: 'Invalid CSRF token' }, 403);
+  const shareId = Number(data.share_id || 0);
+  const ok = await adminRevokeGroupShare(shareId, c.env);
+  if (ok) {
+    await recordAuditLog(c.env, {
+      actorUserId: user.id,
+      actorEmail: user.email,
+      action: 'ADMIN_REVOKE_GROUP_SHARE',
+      target: `group_share#${shareId}`,
+      ipAddress: c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for') ?? '',
+    });
+  }
+  return c.json({ success: ok });
+});
+
+apiRoutes.get('/audit-logs', async (c) => {
+  const user = c.get('user')!;
+  if (!user.is_admin) {
+    return c.json({ error: 'Access denied: Only Administrators may view audit logs.' }, 403);
+  }
+  const q = c.req.query('q') || '';
+  const limit = Number(c.req.query('limit') || 100);
+  return c.json(await listAuditLogs(c.env, limit, q));
+});
+
+apiRoutes.post('/admin/toggle-admin', async (c) => {
+  const user = c.get('user')!;
+  if (!user.is_admin) return c.json({ error: 'Access denied' }, 403);
+  const data = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!(await verifyCsrf(c, data))) return c.json({ error: 'Invalid CSRF token' }, 403);
+
+  const email = String(data.email || '').trim().toLowerCase();
+  const name = String(data.name || '').trim();
+  const makeAdmin = data.is_admin ? 1 : 0;
+  if (!isValidEmail(email)) return c.json({ error: 'Invalid email' }, 400);
+  if (email === user.email.toLowerCase() && !makeAdmin) {
+    return c.json({ error: 'You cannot demote your own administrator account.' }, 400);
+  }
+
+  await c.env.DB.prepare(
+    `INSERT INTO whitelist_users (email, name, role_label, is_admin, created_by_email)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(email) DO UPDATE SET is_admin = excluded.is_admin, role_label = excluded.role_label`
+  )
+    .bind(email, name, makeAdmin ? 'Administrator' : 'Member', makeAdmin, user.email)
+    .run();
+
+  await recordAuditLog(c.env, {
+    actorUserId: user.id,
+    actorEmail: user.email,
+    action: makeAdmin ? 'ROLE_PROMOTE_ADMIN' : 'ROLE_DEMOTE_MEMBER',
+    target: email,
+    ipAddress: c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for') ?? '',
+  });
+  return c.json({ success: true });
+});
+
+apiRoutes.post('/admin/force-logout', async (c) => {
+  const user = c.get('user')!;
+  if (!user.is_admin) return c.json({ error: 'Access denied' }, 403);
+  const data = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!(await verifyCsrf(c, data))) return c.json({ error: 'Invalid CSRF token' }, 403);
+
+  const email = String(data.email || '').trim().toLowerCase();
+  if (!isValidEmail(email)) return c.json({ error: 'Invalid email' }, 400);
+  const revoked = await adminForceLogoutUser(email, c.env);
+  await recordAuditLog(c.env, {
+    actorUserId: user.id,
+    actorEmail: user.email,
+    action: 'ADMIN_FORCE_LOGOUT',
+    target: email,
+    details: `${revoked} session(s) terminated`,
+    ipAddress: c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for') ?? '',
+  });
+  return c.json({ success: true, revoked });
+});
+
+apiRoutes.post('/admin/offboard', async (c) => {
+  const user = c.get('user')!;
+  if (!user.is_admin) return c.json({ error: 'Access denied' }, 403);
+  const data = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!(await verifyCsrf(c, data))) return c.json({ error: 'Invalid CSRF token' }, 403);
+
+  const email = String(data.email || '').trim().toLowerCase();
+  if (!isValidEmail(email)) return c.json({ error: 'Invalid email' }, 400);
+  if (email === user.email.toLowerCase()) {
+    return c.json({ error: 'You cannot offboard your own account.' }, 400);
+  }
+
+  const summary = await adminOffboardUser(email, c.env);
+  await recordAuditLog(c.env, {
+    actorUserId: user.id,
+    actorEmail: user.email,
+    action: 'ADMIN_OFFBOARD_USER',
+    target: email,
+    details: JSON.stringify(summary),
+    ipAddress: c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for') ?? '',
+  });
+  return c.json({ success: true, ...summary });
 });
 
 apiRoutes.post('/access/bulk-revoke', async (c) => {

@@ -29,7 +29,15 @@ function renderLedgerRows(profiles: OtpProfile[]): string {
       const isOwner = Boolean(p.is_owner);
       const canEdit = Boolean(p.can_edit);
       const canShare = Boolean(p.can_share);
+      const isPinned = Boolean(p.is_pinned);
       const hideCode = Boolean(p.hide_code);
+      const sharedSource = !isOwner
+        ? p.shared_via_group
+          ? `VIA GROUP: ${p.shared_via_group}`
+          : p.owner_email
+            ? `FROM: ${p.owner_email}`
+            : 'SHARED'
+        : '';
       const initCode = p.initial_code || '';
       const rem = Number(p.initial_remaining ?? period);
       const pct = Math.max(0, Math.min(100, (rem / period) * 100));
@@ -45,6 +53,7 @@ function renderLedgerRows(profiles: OtpProfile[]): string {
                data-owner="${isOwner ? '1' : '0'}"
                data-can-edit="${canEdit ? '1' : '0'}"
                data-can-share="${canShare ? '1' : '0'}"
+               data-pinned="${isPinned ? '1' : '0'}"
                data-hide="${hideCode ? '1' : '0'}"
                data-name="${escapeHtml((p.name || '').toLowerCase())}"
                data-issuer="${escapeHtml((p.issuer || '').toLowerCase())}"
@@ -53,7 +62,7 @@ function renderLedgerRows(profiles: OtpProfile[]): string {
         <div class="lg-cell-num serif">${num}</div>
 
         <div class="lg-cell-ident">
-          <div class="lg-issuer mono">${issuer}</div>
+          <div class="lg-issuer mono">${issuer}${sharedSource ? ` · <span style="color:var(--accent)">${escapeHtml(sharedSource)}</span>` : ''}</div>
           <h3 class="lg-account" title="${name}">${name}</h3>
         </div>
 
@@ -77,7 +86,10 @@ function renderLedgerRows(profiles: OtpProfile[]): string {
           </div>
         </div>
 
-        <div class="lg-cell-actions">
+        <div class="lg-cell-actions" style="gap:0.35rem">
+          <button type="button" class="btn btn-secondary btn-sm mono" onclick="togglePin(${id})" aria-label="${isPinned ? 'Unpin' : 'Pin'} ${name}" title="${isPinned ? 'Pinned to top' : 'Pin to top'}" style="${isPinned ? 'color:var(--accent);border-color:var(--accent-rule)' : ''}">
+            <span>${isPinned ? '★' : '☆'}</span>
+          </button>
           <button type="button" class="btn btn-secondary btn-sm mono" onclick="openDossier(${id})" aria-label="Open dossier for ${name}">
             <span>DOSSIER</span>
           </button>
@@ -925,9 +937,12 @@ export function renderDashboard(
           </div>
         </div>
       </div>
-      <div class="lg-sb-controls">
-        <button type="button" class="lg-sb-ctrl" onclick="toggleTheme(event)" aria-label="Switch daylight or night ledger theme">
+      <div class="lg-sb-controls" style="grid-template-columns:1fr 1fr">
+        <button type="button" class="lg-sb-ctrl" onclick="toggleTheme(event)" aria-label="Switch daylight or night ledger theme" style="border-right:1px solid var(--rule)">
           MODE: <span data-theme-label>DAY</span>
+        </button>
+        <button type="button" class="lg-sb-ctrl" onclick="openSessionsModal()" aria-label="Manage active sessions">
+          SESSIONS
         </button>
       </div>
       <a href="/auth/logout" class="lg-sb-logout">SIGN OUT</a>
@@ -941,9 +956,9 @@ export function renderDashboard(
       <span class="mono" style="font-size:0.8125rem;letter-spacing:0.05em">KEY<span style="color:var(--accent)">LEDGER</span></span>
     </a>
     <div style="display:flex;align-items:stretch">
-      <div style="display:inline-flex;align-items:center;padding:0 0.5rem;border-left:1px solid var(--rule)">
+      <button type="button" onclick="openSessionsModal()" aria-label="Manage active sessions" style="display:inline-flex;align-items:center;padding:0 0.5rem;border:none;border-left:1px solid var(--rule);background:transparent">
         ${renderUserAvatar(user.name, user.email, user.avatar_url, 26)}
-      </div>
+      </button>
       <button type="button" class="lg-sb-ctrl" onclick="toggleTheme(event)" style="border-left:1px solid var(--rule);border-right:1px solid var(--rule);padding:0 0.75rem">
         <span data-theme-label>DAY</span>
       </button>
@@ -1041,7 +1056,16 @@ export function renderDashboard(
         <div class="metric-cell"><div class="metric-num serif" id="m-users">-</div><div class="metric-cap mono">ROLE RECORDS</div></div>
       </div>
 
-      <div class="lg-scroll-region" style="overflow-x:auto">
+      <div class="lg-cmdbar" style="grid-template-columns:1fr">
+        <div class="lg-filter-group" style="grid-template-columns:repeat(4,1fr);overflow-x:auto" role="tablist" aria-label="Audit sections">
+          <button type="button" class="lg-filter-btn active" data-audit-tab="direct" onclick="switchAuditTab('direct', this)">DIRECT SHARES</button>
+          <button type="button" class="lg-filter-btn" data-audit-tab="groups" onclick="switchAuditTab('groups', this)">GROUP SHARES</button>
+          <button type="button" class="lg-filter-btn" data-audit-tab="logs" onclick="switchAuditTab('logs', this)">ACTIVITY LOG</button>
+          <button type="button" class="lg-filter-btn" data-audit-tab="matrix" onclick="switchAuditTab('matrix', this)">BULK MATRIX</button>
+        </div>
+      </div>
+
+      <div id="audit-pane-direct" class="lg-scroll-region" style="overflow-x:auto">
         <table class="data-table">
           <thead>
             <tr>
@@ -1056,6 +1080,66 @@ export function renderDashboard(
             <tr><td colspan="5" class="mono" style="color:var(--ink-3)">LOADING DELEGATION RECORDS...</td></tr>
           </tbody>
         </table>
+      </div>
+
+      <div id="audit-pane-groups" class="lg-scroll-region" style="display:none;overflow-x:auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Key Record</th>
+              <th>Custodian</th>
+              <th>Target Group</th>
+              <th>Clearance</th>
+              <th style="text-align:right">Action</th>
+            </tr>
+          </thead>
+          <tbody id="access-group-shares-body">
+            <tr><td colspan="5" class="mono" style="color:var(--ink-3)">LOADING GROUP DELEGATIONS...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div id="audit-pane-logs" class="lg-scroll-region" style="display:none;overflow-x:auto">
+        <div style="padding:0.75rem;border-bottom:1px solid var(--rule);background:var(--surface);display:flex;gap:0.5rem">
+          <input id="audit-log-search" type="search" class="input mono" placeholder="Search logs by actor, action, target..." oninput="loadAuditLogs()">
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>Actor</th>
+              <th>Action</th>
+              <th>Target</th>
+              <th>IP</th>
+            </tr>
+          </thead>
+          <tbody id="audit-logs-body">
+            <tr><td colspan="5" class="mono" style="color:var(--ink-3)">LOADING ACTIVITY LOGS...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div id="audit-pane-matrix" class="lg-scroll-region" style="display:none;padding:1rem">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1rem">
+          <div style="border:1px solid var(--rule);background:var(--surface);padding:1rem">
+            <div class="field-label">1. SELECT TOKENS</div>
+            <div id="bm-tokens" style="display:flex;flex-direction:column;gap:0.4rem;max-height:260px;overflow-y:auto;font-size:0.8125rem"></div>
+          </div>
+          <div style="border:1px solid var(--rule);background:var(--surface);padding:1rem">
+            <div class="field-label">2. SELECT TARGET ACCOUNTS</div>
+            <div id="bm-users" style="display:flex;flex-direction:column;gap:0.4rem;max-height:260px;overflow-y:auto;font-size:0.8125rem"></div>
+          </div>
+        </div>
+        <div style="margin-top:1rem;display:flex;flex-wrap:wrap;align-items:center;gap:0.75rem;padding:0.875rem;border:1px solid var(--rule);background:var(--surface)">
+          <label style="display:flex;align-items:center;gap:0.45rem;font-size:0.8125rem">
+            <input id="bm-can-edit" type="checkbox">
+            <span>Grant metadata edit clearance</span>
+          </label>
+          <div style="margin-left:auto;display:flex;gap:0.5rem">
+            <button type="button" class="btn btn-primary btn-sm mono" onclick="submitBulkMatrix('grant')">GRANT SELECTED</button>
+            <button type="button" class="btn btn-danger btn-sm mono" onclick="submitBulkMatrix('revoke')">REVOKE SELECTED</button>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -1173,6 +1257,14 @@ export function renderDashboard(
 
     <!-- Record Maintenance & Hold-to-Delete -->
     <div style="margin-top:auto;border-top:1px solid var(--rule);padding-top:1.25rem;display:flex;flex-direction:column;gap:0.625rem">
+      <button type="button" class="btn btn-secondary mono" id="dr-qr-btn" onclick="toggleOwnerQr()" style="width:100%">
+        REVEAL SETUP QR (OWNER ONLY)
+      </button>
+      <div id="dr-qr-box" style="display:none;padding:1rem;border:1px solid var(--rule);background:#FFFFFF;text-align:center">
+        <canvas id="dr-qr-canvas" style="max-width:200px;width:100%;height:auto;margin:0 auto;display:block"></canvas>
+        <div class="mono" style="font-size:0.65rem;color:#3D3B36;margin-top:0.5rem">SCAN WITH ANOTHER AUTHENTICATOR APP</div>
+      </div>
+
       <button type="button" class="btn btn-secondary mono" id="dr-edit-btn" onclick="editDossierRecord()" style="width:100%">
         EDIT RECORD METADATA
       </button>
@@ -1202,8 +1294,19 @@ export function renderDashboard(
       <input type="hidden" id="tf-id" value="">
       <div style="display:flex;flex-direction:column;gap:0.875rem">
         <div>
-          <label for="tf-uri" class="field-label">Quick Parse otpauth:// URI (Optional)</label>
+          <label for="tf-uri" class="field-label">Quick Parse otpauth:// URI or Scan QR</label>
           <input id="tf-uri" type="text" class="input mono" placeholder="otpauth://totp/..." oninput="parseOtpAuthUri(this.value)">
+          <div style="display:flex;gap:0.5rem;margin-top:0.5rem;flex-wrap:wrap">
+            <button type="button" class="btn btn-secondary btn-sm mono" onclick="startQrCamera()">SCAN QR CAMERA</button>
+            <label class="btn btn-secondary btn-sm mono" style="margin:0">
+              <span>UPLOAD QR IMAGE</span>
+              <input type="file" accept="image/*" style="display:none" onchange="scanQrFile(this)">
+            </label>
+          </div>
+          <div id="qr-video-wrap" style="display:none;margin-top:0.625rem;border:1px solid var(--rule);background:#000;position:relative">
+            <video id="qr-video" playsinline muted style="width:100%;max-height:220px;object-fit:cover;display:block"></video>
+            <button type="button" class="btn btn-danger btn-sm mono" onclick="stopQrCamera()" style="position:absolute;top:0.4rem;right:0.4rem">STOP</button>
+          </div>
         </div>
         <div>
           <label for="tf-name" class="field-label">Account Identifier *</label>
@@ -1269,6 +1372,23 @@ export function renderDashboard(
         <button type="submit" class="btn btn-primary mono">INGEST RECORDS</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- Active Sessions Modal -->
+<div id="sessions-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="sessions-modal-title">
+  <div class="modal-panel" style="max-width:520px">
+    <div class="modal-header">
+      <h2 id="sessions-modal-title" class="modal-title">Active Device Sessions.</h2>
+      <button type="button" class="btn btn-secondary btn-sm mono" onclick="closeModal('sessions-modal')" aria-label="Close dialog">ESC</button>
+    </div>
+    <div id="sessions-list" style="display:flex;flex-direction:column;gap:0.625rem;max-height:55dvh;overflow-y:auto">
+      <div class="mono" style="font-size:0.75rem;color:var(--ink-3)">LOADING SESSIONS...</div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-danger btn-sm mono" onclick="revokeOtherSessions()">SIGN OUT OTHER DEVICES</button>
+      <button type="button" class="btn btn-secondary mono" onclick="closeModal('sessions-modal')">CLOSE</button>
+    </div>
   </div>
 </div>
 
@@ -1396,6 +1516,8 @@ window.openDossier = function (id) {
 
   document.getElementById('sf-profile-id').value = String(dossierId);
   document.getElementById('dr-share-section').style.display = (isOwner || canShare) ? '' : 'none';
+  document.getElementById('dr-qr-btn').style.display = isOwner ? '' : 'none';
+  document.getElementById('dr-qr-box').style.display = 'none';
   document.getElementById('dr-edit-btn').style.display = canEdit ? '' : 'none';
   document.getElementById('dr-hold-del').style.display = isOwner ? '' : 'none';
 
@@ -1604,6 +1726,7 @@ window.openModal = function (id) {
   if (m) m.classList.remove('hidden');
 };
 window.closeModal = function (id) {
+  if (id === 'token-modal') stopQrCamera();
   var m = document.getElementById(id);
   if (m) m.classList.add('hidden');
 };
@@ -2073,25 +2196,420 @@ function loadRolesView() {
           '<td data-label="EMAIL IDENTITY" class="mono"><span>' + escapeStr(u.email) + '</span></td>' +
           '<td data-label="STATUS">' + statusBadge + '</td>' +
           '<td data-label="CLEARANCE"><span class="stamp ' + (u.is_admin ? 'stamp-accent' : '') + '">' + (u.is_admin ? 'ADMINISTRATOR' : escapeStr(u.role_label || 'MEMBER')) + '</span></td>' +
-          '<td data-label="ACTION" style="text-align:right">' + (isSelf ? '<span class="mono" style="font-size:0.68rem;color:var(--ink-3)">ACTIVE SESSION</span>' : '') + '</td>';
-        if (!isSelf && u.id) {
-          var btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = 'btn btn-danger btn-sm mono';
-          btn.textContent = 'REMOVE ROLE';
-          btn.onclick = function () {
-            fetch('/api/whitelist/' + u.id, {
-              method: 'DELETE',
+          '<td data-label="ACTION" style="text-align:right"><div style="display:inline-flex;gap:0.35rem;flex-wrap:wrap;justify-content:flex-end">' + (isSelf ? '<span class="mono" style="font-size:0.68rem;color:var(--ink-3)">ACTIVE SESSION</span>' : '') + '</div></td>';
+
+        if (!isSelf) {
+          var actionsWrap = tr.lastElementChild.firstElementChild;
+
+          var roleBtn = document.createElement('button');
+          roleBtn.type = 'button';
+          roleBtn.className = 'btn btn-secondary btn-sm mono';
+          roleBtn.textContent = u.is_admin ? 'DEMOTE' : 'MAKE ADMIN';
+          roleBtn.onclick = function () {
+            fetch('/api/admin/toggle-admin', {
+              method: 'POST',
               headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
-              body: JSON.stringify({}),
-            }).then(function () { loadRolesView(); });
+              body: JSON.stringify({ email: u.email, name: u.name || '', is_admin: u.is_admin ? 0 : 1 }),
+            }).then(function () {
+              loadRolesView();
+              window.showToast('ROLE UPDATED', 'success');
+            });
           };
-          tr.lastElementChild.appendChild(btn);
+          actionsWrap.appendChild(roleBtn);
+
+          if (u.registered) {
+            var loBtn = document.createElement('button');
+            loBtn.type = 'button';
+            loBtn.className = 'btn btn-secondary btn-sm mono';
+            loBtn.textContent = 'LOGOUT';
+            loBtn.onclick = function () {
+              fetch('/api/admin/force-logout', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+                body: JSON.stringify({ email: u.email }),
+              }).then(function (r) { return r.json(); }).then(function (d) {
+                window.showToast('TERMINATED ' + (d.revoked || 0) + ' SESSION(S)', 'success');
+              });
+            };
+            actionsWrap.appendChild(loBtn);
+          }
+
+          var offBtn = document.createElement('button');
+          offBtn.type = 'button';
+          offBtn.className = 'btn btn-danger btn-sm mono';
+          offBtn.textContent = 'OFFBOARD';
+          offBtn.onclick = function () {
+            window.confirmAction({
+              title: 'Offboard Custodian?',
+              message: 'Revoke all direct shares, remove from all groups, delete role clearance, and terminate active sessions for ' + u.email + '?',
+              confirmText: 'OFFBOARD USER',
+              danger: true,
+            }).then(function (ok) {
+              if (!ok) return;
+              fetch('/api/admin/offboard', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+                body: JSON.stringify({ email: u.email }),
+              }).then(function () {
+                loadRolesView();
+                window.showToast('USER OFFBOARDED', 'success');
+              });
+            });
+          };
+          actionsWrap.appendChild(offBtn);
         }
         tbody.appendChild(tr);
       });
     });
 }
+
+// ── Pin / Favorite ──
+window.togglePin = function (id) {
+  fetch('/api/profiles/' + id + '/pin', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+    body: JSON.stringify({}),
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (d.error) { window.showToast(d.error, 'error'); return; }
+      window.location.reload();
+    });
+};
+
+// ── Lazy CDN Script Loader (Zero render-blocking) ──
+function loadExternalScript(url, globalName) {
+  return new Promise(function (resolve, reject) {
+    if (window[globalName]) { resolve(window[globalName]); return; }
+    var s = document.createElement('script');
+    s.src = url;
+    s.async = true;
+    s.onload = function () { resolve(window[globalName]); };
+    s.onerror = function () { reject(new Error('Failed to load ' + globalName)); };
+    document.head.appendChild(s);
+  });
+}
+
+// ── Owner Setup QR Reveal ──
+window.toggleOwnerQr = async function () {
+  var box = document.getElementById('dr-qr-box');
+  if (!box || !dossierId) return;
+  if (box.style.display !== 'none') {
+    box.style.display = 'none';
+    return;
+  }
+  try {
+    var resp = await fetch('/api/profiles/' + dossierId + '/qr-uri');
+    var data = await resp.json();
+    if (!resp.ok || !data.uri) {
+      window.showToast(data.error || 'Unable to reveal QR', 'error');
+      return;
+    }
+    var QRCode = await loadExternalScript('https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js', 'QRCode');
+    box.style.display = 'block';
+    await QRCode.toCanvas(document.getElementById('dr-qr-canvas'), data.uri, { width: 200, margin: 1 });
+  } catch (err) {
+    window.showToast('QR generator unavailable', 'error');
+  }
+};
+
+// ── QR Scanner (Camera & File Upload) ──
+var qrStream = null;
+var qrScanRaf = null;
+
+function handleScannedQrText(text) {
+  var val = String(text || '').trim();
+  if (!val) return false;
+  if (val.toLowerCase().startsWith('otpauth-migration://')) {
+    stopQrCamera();
+    closeModal('token-modal');
+    document.getElementById('imp-text').value = val;
+    openModal('import-modal');
+    window.showToast('GOOGLE AUTH EXPORT QR DETECTED', 'success');
+    return true;
+  }
+  if (val.toLowerCase().startsWith('otpauth://')) {
+    stopQrCamera();
+    document.getElementById('tf-uri').value = val;
+    parseOtpAuthUri(val);
+    window.showToast('OTPAUTH QR PARSED', 'success');
+    return true;
+  }
+  return false;
+}
+
+window.stopQrCamera = function () {
+  if (qrScanRaf) { cancelAnimationFrame(qrScanRaf); qrScanRaf = null; }
+  if (qrStream) {
+    qrStream.getTracks().forEach(function (t) { t.stop(); });
+    qrStream = null;
+  }
+  var wrap = document.getElementById('qr-video-wrap');
+  if (wrap) wrap.style.display = 'none';
+};
+
+window.startQrCamera = async function () {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    window.showToast('Camera unavailable in this browser. Use Upload QR Image.', 'error');
+    return;
+  }
+  try {
+    qrStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    var video = document.getElementById('qr-video');
+    var wrap = document.getElementById('qr-video-wrap');
+    video.srcObject = qrStream;
+    wrap.style.display = 'block';
+    await video.play();
+
+    var detector = 'BarcodeDetector' in window ? new window.BarcodeDetector({ formats: ['qr_code'] }) : null;
+    var jsQR = detector ? null : await loadExternalScript('https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js', 'jsQR');
+    var canvas = document.createElement('canvas');
+    var ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    async function tick() {
+      if (!qrStream) return;
+      if (video.readyState >= 2) {
+        try {
+          if (detector) {
+            var codes = await detector.detect(video);
+            if (codes && codes.length && handleScannedQrText(codes[0].rawValue)) return;
+          } else if (jsQR && video.videoWidth > 0) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            var imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            var res = jsQR(imgData.data, imgData.width, imgData.height);
+            if (res && handleScannedQrText(res.data)) return;
+          }
+        } catch (e) {}
+      }
+      qrScanRaf = requestAnimationFrame(tick);
+    }
+    tick();
+  } catch (err) {
+    window.showToast('Camera permission denied or unavailable', 'error');
+  }
+};
+
+window.scanQrFile = async function (input) {
+  var file = input && input.files && input.files[0];
+  if (!file) return;
+  try {
+    var img = new Image();
+    img.src = URL.createObjectURL(file);
+    await new Promise(function (res, rej) { img.onload = res; img.onerror = rej; });
+    var canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    var ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    URL.revokeObjectURL(img.src);
+
+    var decoded = '';
+    if ('BarcodeDetector' in window) {
+      var codes = await new window.BarcodeDetector({ formats: ['qr_code'] }).detect(canvas);
+      if (codes && codes.length) decoded = codes[0].rawValue;
+    }
+    if (!decoded) {
+      var jsQR = await loadExternalScript('https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js', 'jsQR');
+      var imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      var res = jsQR(imgData.data, imgData.width, imgData.height);
+      if (res) decoded = res.data;
+    }
+    if (!handleScannedQrText(decoded)) {
+      window.showToast('No valid otpauth QR found in image', 'error');
+    }
+  } catch (err) {
+    window.showToast('Failed to read QR image', 'error');
+  } finally {
+    input.value = '';
+  }
+};
+
+// ── Self-Service Active Sessions ──
+window.openSessionsModal = function () {
+  openModal('sessions-modal');
+  loadSessions();
+};
+
+function loadSessions() {
+  var box = document.getElementById('sessions-list');
+  if (!box) return;
+  box.innerHTML = '<div class="mono" style="font-size:0.75rem;color:var(--ink-3)">LOADING SESSIONS...</div>';
+  fetch('/api/sessions')
+    .then(function (r) { return r.json(); })
+    .then(function (rows) {
+      box.innerHTML = '';
+      if (!rows || !rows.length) {
+        box.innerHTML = '<div class="mono" style="font-size:0.75rem;color:var(--ink-3)">NO ACTIVE SESSIONS.</div>';
+        return;
+      }
+      rows.forEach(function (s) {
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:0.75rem;padding:0.75rem;border:1px solid var(--rule);background:var(--surface-sub)';
+        row.innerHTML =
+          '<div style="min-width:0;flex:1">' +
+            '<div class="mono" style="font-size:0.72rem;font-weight:600">' + escapeStr(s.ip_address) + (s.is_current ? ' <span class="stamp stamp-accent">CURRENT</span>' : '') + '</div>' +
+            '<div style="font-size:0.75rem;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:0.2rem">' + escapeStr(s.user_agent) + '</div>' +
+            '<div class="mono" style="font-size:0.65rem;color:var(--ink-3);margin-top:0.15rem">LAST ACTIVE: ' + escapeStr(s.last_used_at) + '</div>' +
+          '</div>';
+        if (!s.is_current) {
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'btn btn-danger btn-sm mono';
+          btn.textContent = 'REVOKE';
+          btn.onclick = function () {
+            fetch('/api/sessions/' + s.id, {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+              body: JSON.stringify({}),
+            }).then(function () { loadSessions(); });
+          };
+          row.appendChild(btn);
+        }
+        box.appendChild(row);
+      });
+    });
+}
+
+window.revokeOtherSessions = function () {
+  fetch('/api/sessions/revoke-others', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+    body: JSON.stringify({}),
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      loadSessions();
+      window.showToast('SIGNED OUT ' + (d.revoked || 0) + ' OTHER DEVICE(S)', 'success');
+    });
+};
+
+// ── Admin Audit Sub-Tabs (Direct, Groups, Logs, Bulk Matrix) ──
+window.switchAuditTab = function (tab, btn) {
+  ['direct', 'groups', 'logs', 'matrix'].forEach(function (t) {
+    var pane = document.getElementById('audit-pane-' + t);
+    if (pane) pane.style.display = t === tab ? '' : 'none';
+  });
+  document.querySelectorAll('[data-audit-tab]').forEach(function (b) {
+    b.classList.toggle('active', b.getAttribute('data-audit-tab') === tab);
+  });
+  if (tab === 'direct') loadAccessView();
+  if (tab === 'groups') loadGroupSharesAudit();
+  if (tab === 'logs') loadAuditLogs();
+  if (tab === 'matrix') loadBulkMatrix();
+};
+
+function loadGroupSharesAudit() {
+  fetch('/api/access/group-shares')
+    .then(function (r) { return r.json(); })
+    .then(function (rows) {
+      var tbody = document.getElementById('access-group-shares-body');
+      tbody.innerHTML = '';
+      if (!rows || !rows.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="mono" style="color:var(--ink-3)">NO GROUP SHARES RECORDED.</td></tr>';
+        return;
+      }
+      rows.forEach(function (r) {
+        var tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td data-label="KEY RECORD"><strong>' + escapeStr(r.profile_name) + '</strong></td>' +
+          '<td data-label="CUSTODIAN" class="mono"><span>' + escapeStr(r.owner_email) + '</span></td>' +
+          '<td data-label="TARGET GROUP"><strong>' + escapeStr(r.group_name) + ' (' + r.member_count + ')</strong></td>' +
+          '<td data-label="CLEARANCE"><span class="stamp">' + (r.can_edit ? 'EDIT' : 'READ-ONLY') + (r.can_share ? ' · FWD' : '') + '</span></td>' +
+          '<td data-label="ACTION" style="text-align:right"></td>';
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-danger btn-sm mono';
+        btn.textContent = 'REVOKE';
+        btn.onclick = function () {
+          fetch('/api/access/revoke-group-share', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+            body: JSON.stringify({ share_id: r.share_id }),
+          }).then(function () { loadGroupSharesAudit(); });
+        };
+        tr.lastElementChild.appendChild(btn);
+        tbody.appendChild(tr);
+      });
+    });
+}
+
+window.loadAuditLogs = function () {
+  var q = (document.getElementById('audit-log-search')?.value || '').trim();
+  fetch('/api/audit-logs?q=' + encodeURIComponent(q))
+    .then(function (r) { return r.json(); })
+    .then(function (rows) {
+      var tbody = document.getElementById('audit-logs-body');
+      tbody.innerHTML = '';
+      if (!rows || !rows.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="mono" style="color:var(--ink-3)">NO ACTIVITY LOGS RECORDED.</td></tr>';
+        return;
+      }
+      rows.forEach(function (l) {
+        var tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td data-label="TIMESTAMP" class="mono"><span>' + escapeStr(l.created_at) + '</span></td>' +
+          '<td data-label="ACTOR" class="mono"><span>' + escapeStr(l.actor_email) + '</span></td>' +
+          '<td data-label="ACTION"><span class="stamp">' + escapeStr(l.action) + '</span></td>' +
+          '<td data-label="TARGET" class="mono"><span>' + escapeStr(l.target || '-') + '</span></td>' +
+          '<td data-label="IP" class="mono"><span>' + escapeStr(l.ip_address || '-') + '</span></td>';
+        tbody.appendChild(tr);
+      });
+    });
+};
+
+function loadBulkMatrix() {
+  Promise.all([
+    fetch('/api/access/all-tokens').then(function (r) { return r.json(); }),
+    fetch('/api/whitelist').then(function (r) { return r.json(); }),
+  ]).then(function (res) {
+    var tokens = res[0] || [];
+    var users = res[1] || [];
+    var tBox = document.getElementById('bm-tokens');
+    var uBox = document.getElementById('bm-users');
+    tBox.innerHTML = '';
+    uBox.innerHTML = '';
+
+    tokens.forEach(function (t) {
+      var lbl = document.createElement('label');
+      lbl.style.cssText = 'display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0';
+      lbl.innerHTML = '<input type="checkbox" class="bm-tok-cb" value="' + t.id + '"><span><strong>' + escapeStr(t.issuer || 'Service') + '</strong> · ' + escapeStr(t.name) + '</span>';
+      tBox.appendChild(lbl);
+    });
+    users.forEach(function (u) {
+      var lbl = document.createElement('label');
+      lbl.style.cssText = 'display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0';
+      lbl.innerHTML = '<input type="checkbox" class="bm-usr-cb" value="' + escapeStr(u.email) + '"><span class="mono">' + escapeStr(u.email) + '</span>';
+      uBox.appendChild(lbl);
+    });
+  });
+}
+
+window.submitBulkMatrix = function (action) {
+  var pids = Array.from(document.querySelectorAll('.bm-tok-cb:checked')).map(function (el) { return Number(el.value); });
+  var emails = Array.from(document.querySelectorAll('.bm-usr-cb:checked')).map(function (el) { return el.value; });
+  if (!pids.length || !emails.length) {
+    window.showToast('SELECT AT LEAST ONE TOKEN AND ONE ACCOUNT', 'error');
+    return;
+  }
+  fetch('/api/access/bulk-multi-share', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+    body: JSON.stringify({
+      profile_ids: pids,
+      emails: emails,
+      action: action,
+      can_edit: document.getElementById('bm-can-edit').checked,
+    }),
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (d.error) { window.showToast(d.error, 'error'); return; }
+      window.showToast('BULK ' + action.toUpperCase() + ' COMPLETE', 'success');
+      loadAccessView();
+    });
+};
 
 window.openRoleModal = function () {
   document.getElementById('rf-email').value = '';

@@ -8,6 +8,7 @@ import { findOrCreateOAuthUser, loadUserById, loginUser, logoutUser, syncEnvAdmi
 import { buildOAuthAuthUrl, handleOAuthCallback, OAuthProviderName } from '../services/oauth';
 import { createMagicLink, findOrCreateMagicLinkUser, sendMagicLinkEmail, verifyMagicLink } from '../services/magic-link';
 import { createProfile, shareProfile } from '../services/profile';
+import { recordAuditLog } from '../services/audit';
 import { renderUnauthorized } from '../views/unauthorized';
 
 const VALID_PROVIDERS = new Set<OAuthProviderName>(['google', 'microsoft', 'github', 'keycloak']);
@@ -64,6 +65,13 @@ authRoutes.get('/magic', async (c) => {
     const verifiedEmail = await verifyMagicLink(token, email, c.env);
     const dbUser = await findOrCreateMagicLinkUser(verifiedEmail, c.env);
     await loginUser(c, dbUser.id);
+    await recordAuditLog(c.env, {
+      actorUserId: dbUser.id,
+      actorEmail: dbUser.email,
+      action: 'LOGIN_MAGIC',
+      target: dbUser.email,
+      ipAddress: c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for') ?? '',
+    });
     return c.redirect('/');
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Invalid magic link.';
@@ -124,6 +132,13 @@ authRoutes.get('/callback/:provider', async (c) => {
     const userData = await handleOAuthCallback(provider, code, c.env);
     const dbUser = await findOrCreateOAuthUser(userData, c.env);
     await loginUser(c, dbUser.id);
+    await recordAuditLog(c.env, {
+      actorUserId: dbUser.id,
+      actorEmail: dbUser.email,
+      action: `LOGIN_${provider.toUpperCase()}`,
+      target: dbUser.email,
+      ipAddress: c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for') ?? '',
+    });
     return c.redirect('/');
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'OAuth callback failed.';

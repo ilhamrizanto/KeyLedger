@@ -1,6 +1,6 @@
 import { Env, OtpProfile } from '../types';
 import { decryptSecret, encryptSecret } from '../lib/crypto';
-import { generateTOTP, secondsRemaining, totpProgress } from '../lib/totp';
+import { buildOtpAuthUri, generateTOTP, secondsRemaining, totpProgress } from '../lib/totp';
 import { isValidEmail } from '../lib/html';
 
 export interface ProfileInput {
@@ -233,10 +233,19 @@ export async function listProfilesForUser(userId: number, env: Env): Promise<Otp
                 WHERE pgs.profile_id = p.id AND gm.member_user_id = ? AND pgs.can_share = 1
               ) THEN 1
               ELSE 0
-            END AS can_share
+            END AS can_share,
+            CASE WHEN pp.profile_id IS NOT NULL THEN 1 ELSE 0 END AS is_pinned,
+            (
+              SELECT g.name FROM profile_group_shares pgs
+              JOIN group_members gm ON gm.group_id = pgs.group_id
+              JOIN groups g ON g.id = pgs.group_id
+              WHERE pgs.profile_id = p.id AND gm.member_user_id = ?
+              LIMIT 1
+            ) AS shared_via_group
      FROM otp_profiles p
      JOIN users u ON u.id = p.user_id
      LEFT JOIN profile_shares s ON s.profile_id = p.id AND s.shared_with_user_id = ?
+     LEFT JOIN pinned_profiles pp ON pp.profile_id = p.id AND pp.user_id = ?
      WHERE p.user_id = ?
         OR s.shared_with_user_id = ?
         OR EXISTS (
@@ -244,11 +253,58 @@ export async function listProfilesForUser(userId: number, env: Env): Promise<Otp
           JOIN group_members gm ON gm.group_id = pgs.group_id
           WHERE pgs.profile_id = p.id AND gm.member_user_id = ?
         )
-     ORDER BY (p.user_id = ?) DESC, p.name ASC`
+     ORDER BY is_pinned DESC, (p.user_id = ?) DESC, p.name ASC`
   )
-    .bind(userId, userId, userId, userId, userId, userId, userId, userId, userId, userId)
+    .bind(userId, userId, userId, userId, userId, userId, userId, userId, userId, userId, userId, userId)
     .all<OtpProfile>();
   return res.results ?? [];
+}
+
+export async function togglePinProfile(profileId: number, userId: number, env: Env): Promise<boolean> {
+  const existing = await env.DB.prepare(
+    'SELECT 1 AS ok FROM pinned_profiles WHERE user_id = ? AND profile_id = ?'
+  )
+    .bind(userId, profileId)
+    .first<{ ok: number }>();
+
+  if (existing) {
+    await env.DB.prepare('DELETE FROM pinned_profiles WHERE user_id = ? AND profile_id = ?')
+      .bind(userId, profileId)
+      .run();
+    return false;
+  }
+
+  const accessible = await getProfile(profileId, userId, env);
+  if (!accessible) {
+    throw new Error('Profile not found or access denied.');
+  }
+
+  await env.DB.prepare('INSERT OR IGNORE INTO pinned_profiles (user_id, profile_id) VALUES (?, ?)')
+    .bind(userId, profileId)
+    .run();
+  return true;
+}
+
+export async function getOwnerOtpAuthUri(profileId: number, userId: number, env: Env): Promise<string> {
+  const profile = await env.DB.prepare(
+    'SELECT id, name, issuer, secret_encrypted, algorithm, digits, period FROM otp_profiles WHERE id = ? AND user_id = ?'
+  )
+    .bind(profileId, userId)
+    .first<OtpProfile>();
+
+  if (!profile) {
+    throw new Error('Only the key owner can reveal the setup QR code.');
+  }
+
+  const secret = await decryptSecret(profile.secret_encrypted, env.ENCRYPTION_KEY, env.APP_ENV);
+  return buildOtpAuthUri(
+    secret,
+    profile.issuer || 'KeyLedger',
+    profile.name,
+    profile.algorithm,
+    Number(profile.digits || 6),
+    Number(profile.period || 30)
+  );
 }
 
 export async function generateProfileOTP(profileId: number, userId: number, env: Env) {

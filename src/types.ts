@@ -66,6 +66,8 @@ export interface OtpProfile {
   is_owner?: number;
   can_edit?: number;
   can_share?: number;
+  is_pinned?: number;
+  shared_via_group?: string | null;
   initial_code?: string;
   initial_remaining?: number;
 }

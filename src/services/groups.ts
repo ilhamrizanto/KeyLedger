@@ -241,3 +241,26 @@ export async function getProfileGroupShares(profileId: number, actorUserId: numb
     .all();
   return res.results ?? [];
 }
+
+export async function getAllActiveGroupShares(env: Env) {
+  const res = await env.DB.prepare(
+    `SELECT pgs.id AS share_id, pgs.profile_id, pgs.group_id, pgs.can_edit, pgs.can_share, pgs.created_at,
+            p.name AS profile_name, p.issuer,
+            g.name AS group_name,
+            u_owner.email AS owner_email,
+            (SELECT COUNT(*) FROM group_members gm WHERE gm.group_id = g.id) AS member_count
+     FROM profile_group_shares pgs
+     JOIN otp_profiles p ON p.id = pgs.profile_id
+     JOIN groups g ON g.id = pgs.group_id
+     JOIN users u_owner ON u_owner.id = p.user_id
+     ORDER BY pgs.created_at DESC`
+  ).all();
+  return res.results ?? [];
+}
+
+export async function adminRevokeGroupShare(shareId: number, env: Env): Promise<boolean> {
+  const res = await env.DB.prepare('DELETE FROM profile_group_shares WHERE id = ?')
+    .bind(shareId)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}

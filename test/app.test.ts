@@ -25,6 +25,8 @@ const SCHEMA_STATEMENTS = [
   `CREATE UNIQUE INDEX IF NOT EXISTS uniq_group_member_email ON group_members (group_id, member_email)`,
   `CREATE TABLE IF NOT EXISTS profile_group_shares (id INTEGER PRIMARY KEY AUTOINCREMENT, profile_id INTEGER NOT NULL, group_id INTEGER NOT NULL, shared_by_user_id INTEGER NOT NULL, can_edit INTEGER NOT NULL DEFAULT 0, can_share INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS uniq_profile_group_share ON profile_group_shares (profile_id, group_id)`,
+  `CREATE TABLE IF NOT EXISTS audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, actor_user_id INTEGER DEFAULT NULL, actor_email TEXT NOT NULL, action TEXT NOT NULL, target TEXT DEFAULT '', details TEXT DEFAULT '', ip_address TEXT DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+  `CREATE TABLE IF NOT EXISTS pinned_profiles (user_id INTEGER NOT NULL, profile_id INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (user_id, profile_id))`,
 ];
 
 function extractCookies(headers: Headers): string {
@@ -227,5 +229,32 @@ describe('TOTPVault Workers Integration', () => {
     });
     expect(mgrForwardResp.status).toBe(200);
     expect(((await mgrForwardResp.json()) as { success: boolean }).success).toBe(true);
+
+    // 5. Pin profile, reveal owner-only QR URI (blocked for non-owner), and list active sessions
+    const pinResp = await SELF.fetch(`http://localhost/api/profiles/${prof.id}/pin`, {
+      method: 'POST',
+      headers: { Cookie: allOwnerCookies, 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+      body: JSON.stringify({}),
+    });
+    expect(pinResp.status).toBe(200);
+    expect(((await pinResp.json()) as { pinned: boolean }).pinned).toBe(true);
+
+    const ownerQrResp = await SELF.fetch(`http://localhost/api/profiles/${prof.id}/qr-uri`, {
+      headers: { Cookie: allOwnerCookies },
+    });
+    expect(ownerQrResp.status).toBe(200);
+    expect(((await ownerQrResp.json()) as { uri: string }).uri).toContain('otpauth://totp/');
+
+    const memberQrResp = await SELF.fetch(`http://localhost/api/profiles/${prof.id}/qr-uri`, {
+      headers: { Cookie: memberCookie },
+    });
+    expect(memberQrResp.status).toBe(403);
+
+    const sessionsResp = await SELF.fetch('http://localhost/api/sessions', {
+      headers: { Cookie: allOwnerCookies },
+    });
+    expect(sessionsResp.status).toBe(200);
+    const sessions = (await sessionsResp.json()) as Array<{ is_current: boolean }>;
+    expect(sessions.some((s) => s.is_current)).toBe(true);
   });
 });
