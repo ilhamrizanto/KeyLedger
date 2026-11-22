@@ -62,7 +62,10 @@ function renderLedgerRows(profiles: OtpProfile[]): string {
         <div class="lg-cell-num serif">${num}</div>
 
         <div class="lg-cell-ident">
-          <div class="lg-issuer mono">${issuer}${sharedSource ? ` · <span style="color:var(--accent)">${escapeHtml(sharedSource)}</span>` : ''}</div>
+          <div class="lg-issuer mono" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
+            <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${issuer}${sharedSource ? ` · <span style="color:var(--accent)">${escapeHtml(sharedSource)}</span>` : ''}</span>
+            <button type="button" onclick="togglePin(${id})" aria-label="${isPinned ? 'Unpin' : 'Pin'} ${name}" title="${isPinned ? 'Pinned to top' : 'Pin to top'}" style="border:none;background:transparent;padding:0 0.15rem;font-size:0.9rem;line-height:1;flex-shrink:0;color:${isPinned ? 'var(--accent)' : 'var(--ink-3)'}">${isPinned ? '★' : '☆'}</button>
+          </div>
           <h3 class="lg-account" title="${name}">${name}</h3>
         </div>
 
@@ -86,10 +89,7 @@ function renderLedgerRows(profiles: OtpProfile[]): string {
           </div>
         </div>
 
-        <div class="lg-cell-actions" style="gap:0.35rem">
-          <button type="button" class="btn btn-secondary btn-sm mono" onclick="togglePin(${id})" aria-label="${isPinned ? 'Unpin' : 'Pin'} ${name}" title="${isPinned ? 'Pinned to top' : 'Pin to top'}" style="${isPinned ? 'color:var(--accent);border-color:var(--accent-rule)' : ''}">
-            <span>${isPinned ? '★' : '☆'}</span>
-          </button>
+        <div class="lg-cell-actions">
           <button type="button" class="btn btn-secondary btn-sm mono" onclick="openDossier(${id})" aria-label="Open dossier for ${name}">
             <span>DOSSIER</span>
           </button>
