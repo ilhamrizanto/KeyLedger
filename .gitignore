@@ -1,0 +1,32 @@
+# Secrets — never commit real configuration
+.env
+.dev.vars
+
+# Node / Cloudflare Wrangler
+node_modules/
+.wrangler/
+dist/
+
+# PHP sessions
+sessions/*
+!sessions/.htaccess
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker volumes (if stored locally)
+docker/data/
+
+# Local database & portable server
+mariadb/
+
+# Vault Backups
+backups/*
+!backups/.htaccess

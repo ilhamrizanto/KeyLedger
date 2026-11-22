@@ -1,0 +1,42 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "keyledger",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-12-10",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "keyledger-db",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "traces": {
+      "enabled": true
+    }
+  },
+  "vars": {
+    "APP_NAME": "KeyLedger",
+    "APP_ENV": "demo",
+    "APP_URL": "http://localhost:8787",
+    "AUTH_OPEN_SIGNUP": "true",
+    "SESSION_COOKIE_NAME": "keyledger_session",
+    "REMEMBER_COOKIE_NAME": "keyledger_remember",
+    "SESSION_LIFETIME": "2592000",
+    "ADMIN_EMAILS": "",
+    "ALLOWED_EMAILS": "",
+    "ALLOWED_DOMAINS": "",
+    "MAIL_FROM_EMAIL": "noreply@localhost",
+    "MAIL_FROM_NAME": "KeyLedger",
+    "KEYCLOAK_BASE_URL": "",
+    "KEYCLOAK_REALM": "",
+    "KEYCLOAK_SCOPE": "openid email profile"
+  }
+}

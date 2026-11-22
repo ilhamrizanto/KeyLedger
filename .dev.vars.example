@@ -1,0 +1,18 @@
+# Local secrets for `wrangler dev` (copy to `.dev.vars` - never commit `.dev.vars`!)
+# For production, set each secret via: npx wrangler secret put <KEY>
+
+ENCRYPTION_KEY=ThisIsA32ByteKeyForLocalTesting!
+
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+
+MICROSOFT_CLIENT_ID=
+MICROSOFT_CLIENT_SECRET=
+
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+
+KEYCLOAK_CLIENT_ID=
+KEYCLOAK_CLIENT_SECRET=
+
+MAILERSEND_KEY=
