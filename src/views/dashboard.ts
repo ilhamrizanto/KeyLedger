@@ -917,9 +917,6 @@ export function renderDashboard(
 
     <div class="lg-sb-footer">
       <div class="lg-sb-user">
-        <div class="mono" style="font-size:0.6rem;color:var(--ink-3);letter-spacing:0.04em;margin-bottom:0.45rem">
-          KEYLEDGER · BY <a href="https://github.com/ilhamrizanto" target="_blank" rel="noopener" style="text-decoration:underline">ILHAM RIZANTO</a>
-        </div>
         <div style="display:flex;align-items:center;gap:0.65rem">
           ${renderUserAvatar(user.name, user.email, user.avatar_url, 34)}
           <div style="min-width:0;flex:1">
