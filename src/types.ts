@@ -65,6 +65,7 @@ export interface OtpProfile {
   owner_email?: string;
   is_owner?: number;
   can_edit?: number;
+  can_share?: number;
   initial_code?: string;
   initial_remaining?: number;
 }

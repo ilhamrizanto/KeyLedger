@@ -77,6 +77,23 @@ export async function createProfileBatch(userId: number, items: ProfileInput[], 
   return batch.length;
 }
 
+export async function canShareProfile(profileId: number, userId: number, env: Env): Promise<boolean> {
+  const row = await env.DB.prepare(
+    `SELECT 1 AS ok FROM otp_profiles WHERE id = ? AND user_id = ?
+     UNION
+     SELECT 1 AS ok FROM profile_shares WHERE profile_id = ? AND shared_with_user_id = ? AND can_share = 1
+     UNION
+     SELECT 1 AS ok
+     FROM profile_group_shares pgs
+     JOIN group_members gm ON gm.group_id = pgs.group_id
+     WHERE pgs.profile_id = ? AND gm.member_user_id = ? AND pgs.can_share = 1
+     LIMIT 1`
+  )
+    .bind(profileId, userId, profileId, userId, profileId, userId)
+    .first<{ ok: number }>();
+  return Boolean(row);
+}
+
 async function canEditProfile(profileId: number, userId: number, env: Env): Promise<boolean> {
   const row = await env.DB.prepare(
     `SELECT 1 AS ok FROM otp_profiles WHERE id = ? AND user_id = ?
@@ -164,7 +181,17 @@ export async function getProfile(profileId: number, userId: number, env: Env): P
                 WHERE pgs.profile_id = p.id AND gm.member_user_id = ? AND pgs.can_edit = 1
               ) THEN 1
               ELSE 0
-            END AS can_edit
+            END AS can_edit,
+            CASE
+              WHEN p.user_id = ? THEN 1
+              WHEN COALESCE(s.can_share, 0) = 1 THEN 1
+              WHEN EXISTS (
+                SELECT 1 FROM profile_group_shares pgs
+                JOIN group_members gm ON gm.group_id = pgs.group_id
+                WHERE pgs.profile_id = p.id AND gm.member_user_id = ? AND pgs.can_share = 1
+              ) THEN 1
+              ELSE 0
+            END AS can_share
      FROM otp_profiles p
      JOIN users u ON u.id = p.user_id
      LEFT JOIN profile_shares s ON s.profile_id = p.id AND s.shared_with_user_id = ?
@@ -179,7 +206,7 @@ export async function getProfile(profileId: number, userId: number, env: Env): P
      )
      LIMIT 1`
   )
-    .bind(userId, userId, userId, userId, profileId, userId, userId, userId)
+    .bind(userId, userId, userId, userId, userId, userId, profileId, userId, userId, userId)
     .first<OtpProfile>();
 }
 
@@ -196,7 +223,17 @@ export async function listProfilesForUser(userId: number, env: Env): Promise<Otp
                 WHERE pgs.profile_id = p.id AND gm.member_user_id = ? AND pgs.can_edit = 1
               ) THEN 1
               ELSE 0
-            END AS can_edit
+            END AS can_edit,
+            CASE
+              WHEN p.user_id = ? THEN 1
+              WHEN COALESCE(s.can_share, 0) = 1 THEN 1
+              WHEN EXISTS (
+                SELECT 1 FROM profile_group_shares pgs
+                JOIN group_members gm ON gm.group_id = pgs.group_id
+                WHERE pgs.profile_id = p.id AND gm.member_user_id = ? AND pgs.can_share = 1
+              ) THEN 1
+              ELSE 0
+            END AS can_share
      FROM otp_profiles p
      JOIN users u ON u.id = p.user_id
      LEFT JOIN profile_shares s ON s.profile_id = p.id AND s.shared_with_user_id = ?
@@ -209,7 +246,7 @@ export async function listProfilesForUser(userId: number, env: Env): Promise<Otp
         )
      ORDER BY (p.user_id = ?) DESC, p.name ASC`
   )
-    .bind(userId, userId, userId, userId, userId, userId, userId, userId)
+    .bind(userId, userId, userId, userId, userId, userId, userId, userId, userId, userId)
     .all<OtpProfile>();
   return res.results ?? [];
 }
@@ -238,27 +275,25 @@ export async function generateProfileOTP(profileId: number, userId: number, env:
 
 export async function shareProfile(
   profileId: number,
-  ownerUserId: number,
+  actorUserId: number,
   email: string,
   canEdit: boolean,
-  env: Env
+  env: Env,
+  canShare = false
 ): Promise<boolean> {
-  const owned = await env.DB.prepare('SELECT id FROM otp_profiles WHERE id = ? AND user_id = ?')
-    .bind(profileId, ownerUserId)
-    .first<{ id: number }>();
-  if (!owned) return false;
+  if (!(await canShareProfile(profileId, actorUserId, env))) return false;
 
   const targetUser = await env.DB.prepare('SELECT id FROM users WHERE LOWER(email) = ?')
     .bind(email.toLowerCase())
     .first<{ id: number }>();
 
   await env.DB.prepare(
-    `INSERT INTO profile_shares (profile_id, shared_by_user_id, shared_with_email, shared_with_user_id, can_edit)
-     VALUES (?, ?, ?, ?, ?)
+    `INSERT INTO profile_shares (profile_id, shared_by_user_id, shared_with_email, shared_with_user_id, can_edit, can_share)
+     VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(profile_id, shared_with_email)
-     DO UPDATE SET shared_with_user_id = excluded.shared_with_user_id, can_edit = excluded.can_edit`
+     DO UPDATE SET shared_with_user_id = excluded.shared_with_user_id, can_edit = excluded.can_edit, can_share = excluded.can_share`
   )
-    .bind(profileId, ownerUserId, email.toLowerCase(), targetUser?.id ?? null, canEdit ? 1 : 0)
+    .bind(profileId, actorUserId, email.toLowerCase(), targetUser?.id ?? null, canEdit ? 1 : 0, canShare ? 1 : 0)
     .run();
 
   return true;
@@ -266,14 +301,11 @@ export async function shareProfile(
 
 export async function unshareProfile(
   profileId: number,
-  ownerUserId: number,
+  actorUserId: number,
   email: string,
   env: Env
 ): Promise<boolean> {
-  const owned = await env.DB.prepare('SELECT id FROM otp_profiles WHERE id = ? AND user_id = ?')
-    .bind(profileId, ownerUserId)
-    .first<{ id: number }>();
-  if (!owned) return false;
+  if (!(await canShareProfile(profileId, actorUserId, env))) return false;
 
   const res = await env.DB.prepare(
     'DELETE FROM profile_shares WHERE profile_id = ? AND LOWER(shared_with_email) = ?'
@@ -283,15 +315,16 @@ export async function unshareProfile(
   return (res.meta.changes ?? 0) > 0;
 }
 
-export async function getProfileShares(profileId: number, ownerUserId: number, env: Env) {
+export async function getProfileShares(profileId: number, actorUserId: number, env: Env) {
+  if (!(await canShareProfile(profileId, actorUserId, env))) return [];
   const res = await env.DB.prepare(
     `SELECT ps.*, u.name AS user_name, u.avatar_url
      FROM profile_shares ps
      LEFT JOIN users u ON u.id = ps.shared_with_user_id
-     WHERE ps.profile_id = ? AND ps.shared_by_user_id = ?
+     WHERE ps.profile_id = ?
      ORDER BY ps.created_at DESC`
   )
-    .bind(profileId, ownerUserId)
+    .bind(profileId)
     .all();
   return res.results ?? [];
 }

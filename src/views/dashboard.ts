@@ -28,6 +28,7 @@ function renderLedgerRows(profiles: OtpProfile[]): string {
       const digits = Number(p.digits || 6);
       const isOwner = Boolean(p.is_owner);
       const canEdit = Boolean(p.can_edit);
+      const canShare = Boolean(p.can_share);
       const hideCode = Boolean(p.hide_code);
       const initCode = p.initial_code || '';
       const rem = Number(p.initial_remaining ?? period);
@@ -43,6 +44,7 @@ function renderLedgerRows(profiles: OtpProfile[]): string {
                data-digits="${digits}"
                data-owner="${isOwner ? '1' : '0'}"
                data-can-edit="${canEdit ? '1' : '0'}"
+               data-can-share="${canShare ? '1' : '0'}"
                data-hide="${hideCode ? '1' : '0'}"
                data-name="${escapeHtml((p.name || '').toLowerCase())}"
                data-issuer="${escapeHtml((p.issuer || '').toLowerCase())}"
@@ -914,11 +916,16 @@ export function renderDashboard(
     </nav>
 
     <div class="lg-sb-footer">
-      <div class="lg-sb-user" style="display:flex;align-items:center;gap:0.65rem">
-        ${renderUserAvatar(user.name, user.email, user.avatar_url, 34)}
-        <div style="min-width:0;flex:1">
-          <div style="font-size:0.8125rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(user.name || 'Custodian')}</div>
-          <div class="mono" style="font-size:0.68rem;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(user.email)}</div>
+      <div class="lg-sb-user">
+        <div class="mono" style="font-size:0.6rem;color:var(--ink-3);letter-spacing:0.04em;margin-bottom:0.45rem">
+          KEYLEDGER · BY <a href="https://github.com/ilhamrizanto" target="_blank" rel="noopener" style="text-decoration:underline">ILHAM RIZANTO</a>
+        </div>
+        <div style="display:flex;align-items:center;gap:0.65rem">
+          ${renderUserAvatar(user.name, user.email, user.avatar_url, 34)}
+          <div style="min-width:0;flex:1">
+            <div style="font-size:0.8125rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(user.name || 'Custodian')}</div>
+            <div class="mono" style="font-size:0.68rem;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(user.email)}</div>
+          </div>
         </div>
       </div>
       <div class="lg-sb-controls">
@@ -927,9 +934,6 @@ export function renderDashboard(
         </button>
       </div>
       <a href="/auth/logout" class="lg-sb-logout">SIGN OUT</a>
-      <div class="mono" style="padding:0.45rem 1.25rem;border-top:1px solid var(--rule);font-size:0.62rem;color:var(--ink-3);text-align:center;letter-spacing:0.04em">
-        BY <a href="https://github.com/ilhamrizanto" target="_blank" rel="noopener" style="text-decoration:underline">ILHAM RIZANTO</a>
-      </div>
     </div>
   </aside>
 
@@ -1144,6 +1148,10 @@ export function renderDashboard(
           <input id="sf-group-can-edit" type="checkbox">
           <span>Grant metadata edit clearance to group</span>
         </label>
+        <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.78rem;color:var(--ink-2)">
+          <input id="sf-group-can-share" type="checkbox">
+          <span>Grant forward / group delegation clearance</span>
+        </label>
       </form>
       <div id="sf-group-list" class="mono" style="display:flex;flex-direction:column;gap:0.4rem;font-size:0.78rem;color:var(--ink-3);margin-bottom:1.25rem"></div>
 
@@ -1155,6 +1163,10 @@ export function renderDashboard(
         <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.8125rem;color:var(--ink-2)">
           <input id="sf-can-edit" type="checkbox">
           <span>Grant metadata edit clearance</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.8125rem;color:var(--ink-2)">
+          <input id="sf-can-share" type="checkbox">
+          <span>Grant forward / group delegation clearance</span>
         </label>
         <button type="submit" class="btn btn-secondary btn-sm mono">GRANT CLEARANCE</button>
       </form>
@@ -1370,6 +1382,7 @@ window.openDossier = function (id) {
 
   var isOwner = row.getAttribute('data-owner') === '1';
   var canEdit = row.getAttribute('data-can-edit') === '1';
+  var canShare = row.getAttribute('data-can-share') === '1';
   var hide = row.getAttribute('data-hide') === '1';
   var codeEl = document.getElementById('code-' + dossierId);
   var raw = codeEl ? (codeEl.getAttribute('data-raw-code') || '') : '';
@@ -1385,11 +1398,11 @@ window.openDossier = function (id) {
   document.getElementById('dr-code').textContent = hide ? '••• •••' : formatCode(raw);
 
   document.getElementById('sf-profile-id').value = String(dossierId);
-  document.getElementById('dr-share-section').style.display = isOwner ? '' : 'none';
+  document.getElementById('dr-share-section').style.display = (isOwner || canShare) ? '' : 'none';
   document.getElementById('dr-edit-btn').style.display = canEdit ? '' : 'none';
   document.getElementById('dr-hold-del').style.display = isOwner ? '' : 'none';
 
-  if (isOwner) {
+  if (isOwner || canShare) {
     loadShareList(dossierId);
     loadProfileGroupShares(dossierId);
     populateGroupSelect();
@@ -1703,7 +1716,7 @@ function loadShareList(profileId) {
         var row = document.createElement('div');
         row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding:0.5rem 0.625rem;background:var(--surface-sub);border:1px solid var(--rule)';
         var info = document.createElement('span');
-        info.textContent = s.shared_with_email + (s.can_edit ? ' [EDIT]' : ' [READ]');
+        info.textContent = s.shared_with_email + (s.can_edit ? ' [EDIT]' : ' [READ]') + (s.can_share ? ' [FWD]' : '');
         var btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'btn btn-danger btn-sm mono';
@@ -1731,6 +1744,7 @@ window.submitShare = function (e) {
     body: JSON.stringify({
       email: document.getElementById('sf-email').value.trim(),
       can_edit: document.getElementById('sf-can-edit').checked,
+      can_share: document.getElementById('sf-can-share').checked,
     }),
   })
     .then(function (r) { return r.json(); })
@@ -1884,7 +1898,7 @@ function loadProfileGroupShares(profileId) {
         var row = document.createElement('div');
         row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding:0.5rem 0.625rem;background:var(--surface-sub);border:1px solid var(--rule)';
         var info = document.createElement('span');
-        info.textContent = gs.group_name + ' (' + gs.member_count + ') ' + (gs.can_edit ? '[EDIT]' : '[READ]');
+        info.textContent = gs.group_name + ' (' + gs.member_count + ') ' + (gs.can_edit ? '[EDIT]' : '[READ]') + (gs.can_share ? ' [FWD]' : '');
         var btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'btn btn-danger btn-sm mono';
@@ -1914,6 +1928,7 @@ window.submitGroupShare = function (e) {
     body: JSON.stringify({
       group_id: gid,
       can_edit: document.getElementById('sf-group-can-edit').checked,
+      can_share: document.getElementById('sf-group-can-share').checked,
     }),
   })
     .then(function (r) { return r.json(); })

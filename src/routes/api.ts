@@ -211,6 +211,7 @@ apiRoutes.post('/profiles/:id/shares', async (c) => {
   const profileId = Number(c.req.param('id'));
   const email = String(data.email || '').trim().toLowerCase();
   const canEdit = Boolean(data.can_edit);
+  const canShare = Boolean(data.can_share);
 
   if (!isValidEmail(email)) {
     return c.json({ error: 'Invalid email address' }, 400);
@@ -219,7 +220,7 @@ apiRoutes.post('/profiles/:id/shares', async (c) => {
     return c.json({ error: 'You cannot share with yourself' }, 400);
   }
 
-  const ok = await shareProfile(profileId, user.id, email, canEdit, c.env);
+  const ok = await shareProfile(profileId, user.id, email, canEdit, c.env, canShare);
   return c.json({ success: ok });
 });
 
@@ -329,11 +330,12 @@ apiRoutes.post('/profiles/:id/group-shares', async (c) => {
   const profileId = Number(c.req.param('id'));
   const groupId = Number(data.group_id || 0);
   const canEdit = Boolean(data.can_edit);
+  const canShare = Boolean(data.can_share);
   if (groupId <= 0) {
     return c.json({ error: 'Please select a valid group' }, 400);
   }
 
-  const ok = await shareProfileWithGroup(profileId, user.id, groupId, canEdit, c.env);
+  const ok = await shareProfileWithGroup(profileId, user.id, groupId, canEdit, c.env, canShare);
   return c.json({ success: ok });
 });
 

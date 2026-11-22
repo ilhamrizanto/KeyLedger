@@ -1,5 +1,6 @@
 import { Env } from '../types';
 import { isValidEmail } from '../lib/html';
+import { canShareProfile } from './profile';
 
 export interface GroupMemberItem {
   id: number;
@@ -177,34 +178,33 @@ export async function deleteGroup(groupId: number, ownerUserId: number, env: Env
 
 export async function shareProfileWithGroup(
   profileId: number,
-  ownerUserId: number,
+  actorUserId: number,
   groupId: number,
   canEdit: boolean,
-  env: Env
+  env: Env,
+  canShare = false
 ): Promise<boolean> {
-  const [ownedProfile, accessibleGroup] = await Promise.all([
-    env.DB.prepare('SELECT id FROM otp_profiles WHERE id = ? AND user_id = ?')
-      .bind(profileId, ownerUserId)
-      .first<{ id: number }>(),
+  const [allowedShare, accessibleGroup] = await Promise.all([
+    canShareProfile(profileId, actorUserId, env),
     env.DB.prepare(
       `SELECT g.id FROM groups g
        LEFT JOIN group_members gm ON gm.group_id = g.id AND gm.member_user_id = ?
        WHERE g.id = ? AND (g.owner_user_id = ? OR gm.member_user_id = ?)
        LIMIT 1`
     )
-      .bind(ownerUserId, groupId, ownerUserId, ownerUserId)
+      .bind(actorUserId, groupId, actorUserId, actorUserId)
       .first<{ id: number }>(),
   ]);
 
-  if (!ownedProfile || !accessibleGroup) return false;
+  if (!allowedShare || !accessibleGroup) return false;
 
   await env.DB.prepare(
-    `INSERT INTO profile_group_shares (profile_id, group_id, shared_by_user_id, can_edit)
-     VALUES (?, ?, ?, ?)
+    `INSERT INTO profile_group_shares (profile_id, group_id, shared_by_user_id, can_edit, can_share)
+     VALUES (?, ?, ?, ?, ?)
      ON CONFLICT(profile_id, group_id)
-     DO UPDATE SET can_edit = excluded.can_edit`
+     DO UPDATE SET can_edit = excluded.can_edit, can_share = excluded.can_share`
   )
-    .bind(profileId, groupId, ownerUserId, canEdit ? 1 : 0)
+    .bind(profileId, groupId, actorUserId, canEdit ? 1 : 0, canShare ? 1 : 0)
     .run();
 
   return true;
@@ -212,14 +212,11 @@ export async function shareProfileWithGroup(
 
 export async function unshareProfileFromGroup(
   profileId: number,
-  ownerUserId: number,
+  actorUserId: number,
   groupId: number,
   env: Env
 ): Promise<boolean> {
-  const owned = await env.DB.prepare('SELECT id FROM otp_profiles WHERE id = ? AND user_id = ?')
-    .bind(profileId, ownerUserId)
-    .first<{ id: number }>();
-  if (!owned) return false;
+  if (!(await canShareProfile(profileId, actorUserId, env))) return false;
 
   const res = await env.DB.prepare(
     'DELETE FROM profile_group_shares WHERE profile_id = ? AND group_id = ?'
@@ -229,17 +226,18 @@ export async function unshareProfileFromGroup(
   return (res.meta.changes ?? 0) > 0;
 }
 
-export async function getProfileGroupShares(profileId: number, ownerUserId: number, env: Env) {
+export async function getProfileGroupShares(profileId: number, actorUserId: number, env: Env) {
+  if (!(await canShareProfile(profileId, actorUserId, env))) return [];
   const res = await env.DB.prepare(
-    `SELECT pgs.id, pgs.profile_id, pgs.group_id, pgs.can_edit, pgs.created_at,
+    `SELECT pgs.id, pgs.profile_id, pgs.group_id, pgs.can_edit, pgs.can_share, pgs.created_at,
             g.name AS group_name,
             (SELECT COUNT(*) FROM group_members gm WHERE gm.group_id = g.id) AS member_count
      FROM profile_group_shares pgs
      JOIN groups g ON g.id = pgs.group_id
-     WHERE pgs.profile_id = ? AND pgs.shared_by_user_id = ?
+     WHERE pgs.profile_id = ?
      ORDER BY g.name ASC`
   )
-    .bind(profileId, ownerUserId)
+    .bind(profileId)
     .all();
   return res.results ?? [];
 }

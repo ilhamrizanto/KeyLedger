@@ -13,7 +13,7 @@ const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS oauth_identities (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, provider TEXT NOT NULL, provider_id TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS uniq_provider_identity ON oauth_identities (provider, provider_id)`,
   `CREATE TABLE IF NOT EXISTS otp_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, name TEXT NOT NULL, issuer TEXT DEFAULT '', secret_encrypted TEXT NOT NULL, algorithm TEXT NOT NULL DEFAULT 'SHA1', digits INTEGER NOT NULL DEFAULT 6, period INTEGER NOT NULL DEFAULT 30, color TEXT NOT NULL DEFAULT '#6366f1', icon TEXT NOT NULL DEFAULT 'shield', hide_code INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
-  `CREATE TABLE IF NOT EXISTS profile_shares (id INTEGER PRIMARY KEY AUTOINCREMENT, profile_id INTEGER NOT NULL, shared_by_user_id INTEGER NOT NULL, shared_with_email TEXT NOT NULL, shared_with_user_id INTEGER DEFAULT NULL, can_edit INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+  `CREATE TABLE IF NOT EXISTS profile_shares (id INTEGER PRIMARY KEY AUTOINCREMENT, profile_id INTEGER NOT NULL, shared_by_user_id INTEGER NOT NULL, shared_with_email TEXT NOT NULL, shared_with_user_id INTEGER DEFAULT NULL, can_edit INTEGER NOT NULL DEFAULT 0, can_share INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS uniq_profile_share_email ON profile_shares (profile_id, shared_with_email)`,
   `CREATE TABLE IF NOT EXISTS whitelist_users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL, name TEXT DEFAULT '', role_label TEXT DEFAULT 'Member', is_admin INTEGER NOT NULL DEFAULT 0, created_by_email TEXT DEFAULT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_whitelist_email ON whitelist_users (email)`,
@@ -23,7 +23,7 @@ const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS groups (id INTEGER PRIMARY KEY AUTOINCREMENT, owner_user_id INTEGER NOT NULL, name TEXT NOT NULL, description TEXT DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE TABLE IF NOT EXISTS group_members (id INTEGER PRIMARY KEY AUTOINCREMENT, group_id INTEGER NOT NULL, member_email TEXT NOT NULL, member_user_id INTEGER DEFAULT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS uniq_group_member_email ON group_members (group_id, member_email)`,
-  `CREATE TABLE IF NOT EXISTS profile_group_shares (id INTEGER PRIMARY KEY AUTOINCREMENT, profile_id INTEGER NOT NULL, group_id INTEGER NOT NULL, shared_by_user_id INTEGER NOT NULL, can_edit INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+  `CREATE TABLE IF NOT EXISTS profile_group_shares (id INTEGER PRIMARY KEY AUTOINCREMENT, profile_id INTEGER NOT NULL, group_id INTEGER NOT NULL, shared_by_user_id INTEGER NOT NULL, can_edit INTEGER NOT NULL DEFAULT 0, can_share INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS uniq_profile_group_share ON profile_group_shares (profile_id, group_id)`,
 ];
 
@@ -194,5 +194,38 @@ describe('TOTPVault Workers Integration', () => {
     expect(otpResp.status).toBe(200);
     const otp = (await otpResp.json()) as { code: string };
     expect(otp.code).toMatch(/^\d{6}$/);
+
+    // 4. Owner shares with a delegate manager with can_share=true; manager forwards to their own group
+    const fwdShareResp = await SELF.fetch(`http://localhost/api/profiles/${prof.id}/shares`, {
+      method: 'POST',
+      headers: { Cookie: allOwnerCookies, 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+      body: JSON.stringify({ email: 'manager@example.com', can_edit: false, can_share: true }),
+    });
+    expect(fwdShareResp.status).toBe(200);
+
+    const mgrMagic = await createMagicLink('manager@example.com', env);
+    const mgrLogin = await SELF.fetch(
+      `http://localhost${new URL(mgrMagic).pathname + new URL(mgrMagic).search}`,
+      { redirect: 'manual' }
+    );
+    const mgrCookie = extractCookies(mgrLogin.headers);
+    const mgrDash = await SELF.fetch('http://localhost/', { headers: { Cookie: mgrCookie } });
+    const mgrCsrf = (await mgrDash.text()).match(/const CSRF = "([^"]+)"/)![1]!;
+    const allMgrCookies = `${mgrCookie}; ${extractCookies(mgrDash.headers)}`;
+
+    const mgrGrpResp = await SELF.fetch('http://localhost/api/groups', {
+      method: 'POST',
+      headers: { Cookie: allMgrCookies, 'Content-Type': 'application/json', 'X-CSRF-Token': mgrCsrf },
+      body: JSON.stringify({ name: 'Managers Team', members: ['sub.member@example.com'] }),
+    });
+    const mgrGrp = (await mgrGrpResp.json()) as { id: number };
+
+    const mgrForwardResp = await SELF.fetch(`http://localhost/api/profiles/${prof.id}/group-shares`, {
+      method: 'POST',
+      headers: { Cookie: allMgrCookies, 'Content-Type': 'application/json', 'X-CSRF-Token': mgrCsrf },
+      body: JSON.stringify({ group_id: mgrGrp.id, can_edit: false, can_share: false }),
+    });
+    expect(mgrForwardResp.status).toBe(200);
+    expect(((await mgrForwardResp.json()) as { success: boolean }).success).toBe(true);
   });
 });
