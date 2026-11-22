@@ -610,10 +610,41 @@ export function renderDashboard(
 .metric-cap { font-size: 0.7rem; color: var(--ink-3); margin-top: 0.35rem; }
 
 @media (max-width: 960px) {
-  .lg-shell { flex-direction: column; }
+  .lg-shell { flex-direction: column; height: 100dvh; overflow: hidden; }
   .lg-sidebar { display: none; }
-  .lg-mob-topbar { display: flex; }
-  .lg-frame { padding-bottom: calc(60px + env(safe-area-inset-bottom)); }
+  .lg-mob-topbar { display: flex; flex-shrink: 0; }
+  .lg-frame {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg);
+    padding-bottom: 0;
+  }
+  #view-tokens:not([style*="display:none"]):not([style*="display: none"]) {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+  #view-tokens .lg-masthead,
+  #view-tokens .lg-cmdbar { flex-shrink: 0; }
+  #ledger-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 0.75rem 0.75rem calc(68px + env(safe-area-inset-bottom));
+  }
+  #view-access,
+  #view-whitelist {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: calc(68px + env(safe-area-inset-bottom));
+  }
   .lg-mob-nav {
     position: fixed;
     left: 0;
@@ -644,8 +675,13 @@ export function renderDashboard(
   .lg-mob-btn.active { background: var(--surface-sub); color: var(--accent); }
   .lg-col-headers { display: none; }
   .lg-row {
-    grid-template-columns: 48px 1fr auto;
+    grid-template-columns: 44px 1fr auto;
+    margin-bottom: 0.75rem;
+    border: 1px solid var(--rule);
+    border-radius: var(--r-sharp);
+    box-shadow: 0 1px 2px rgba(18, 18, 16, 0.04);
   }
+  .lg-row:last-child { margin-bottom: 0; }
   .lg-cell-meta { display: none; }
   .lg-cell-ident { border-right: none; min-width: 0; }
   .lg-cell-actions { grid-row: 1; grid-column: 3; border-left: 1px solid var(--rule); }
@@ -654,7 +690,7 @@ export function renderDashboard(
     border-right: none;
     border-top: 1px solid var(--rule);
     background: var(--surface-sub);
-    padding: 0.25rem 1rem;
+    padding: 0.45rem 0.875rem;
   }
   .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
