@@ -3,7 +3,15 @@
   "name": "keyledger",
   "main": "src/index.ts",
   "compatibility_date": "2025-12-10",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "routes": [
+    {
+      "pattern": "keyledger.rizanto.web.id",
+      "custom_domain": true
+    }
+  ],
   "assets": {
     "directory": "./public",
     "binding": "ASSETS"
@@ -12,7 +20,7 @@
     {
       "binding": "DB",
       "database_name": "keyledger-db",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "b000b20e-4765-4afc-9348-9938cb7f3aa8",
       "migrations_dir": "migrations"
     }
   ],
@@ -24,13 +32,13 @@
   },
   "vars": {
     "APP_NAME": "KeyLedger",
-    "APP_ENV": "demo",
-    "APP_URL": "http://localhost:8787",
+    "APP_ENV": "production",
+    "APP_URL": "https://keyledger.rizanto.web.id",
     "AUTH_OPEN_SIGNUP": "true",
     "SESSION_COOKIE_NAME": "keyledger_session",
     "REMEMBER_COOKIE_NAME": "keyledger_remember",
     "SESSION_LIFETIME": "2592000",
-    "ADMIN_EMAILS": "",
+    "ADMIN_EMAILS": "ilhamgb11@gmail.com",
     "ALLOWED_EMAILS": "",
     "ALLOWED_DOMAINS": "",
     "MAIL_FROM_EMAIL": "noreply@localhost",

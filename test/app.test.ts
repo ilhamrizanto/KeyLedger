@@ -29,6 +29,7 @@ function extractCookies(headers: Headers): string {
 
 describe('TOTPVault Workers Integration', () => {
   beforeAll(async () => {
+    env.ENCRYPTION_KEY = 'TestStrongKeyForUnitTestsOnly32B!';
     for (const sql of SCHEMA_STATEMENTS) {
       await env.DB.prepare(sql).run();
     }
@@ -43,17 +44,20 @@ describe('TOTPVault Workers Integration', () => {
     expect(body.runtime).toBe('cloudflare-workers');
   });
 
-  it('supports dev-login, persistent session, profile CRUD, OTP generation, and logout', async () => {
-    // 1. Login via dev-login
-    const loginResp = await SELF.fetch('http://localhost/auth/dev-login', { redirect: 'manual' });
+  it('supports magic-link login, persistent session, profile CRUD, OTP generation, and logout', async () => {
+    // 1. Login via magic link (works in both demo and production)
+    const { createMagicLink } = await import('../src/services/magic-link');
+    const magicUrl = await createMagicLink('test.custodian@example.com', env);
+    const magicPath = new URL(magicUrl).pathname + new URL(magicUrl).search;
+    const loginResp = await SELF.fetch(`http://localhost${magicPath}`, { redirect: 'manual' });
     expect(loginResp.status).toBe(302);
-    expect(loginResp.headers.get('location')).toBe('/tokens');
+    expect(loginResp.headers.get('location')).toBe('/');
     const cookieHeader = extractCookies(loginResp.headers);
     expect(cookieHeader).toContain('keyledger_session=');
     expect(cookieHeader).toContain('keyledger_remember=');
 
-    // 2. Access /tokens and extract CSRF token
-    const dashResp = await SELF.fetch('http://localhost/tokens', {
+    // 2. Access / and extract CSRF token
+    const dashResp = await SELF.fetch('http://localhost/', {
       headers: { Cookie: cookieHeader },
     });
     expect(dashResp.status).toBe(200);

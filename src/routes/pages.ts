@@ -11,7 +11,7 @@ export const pageRoutes = new Hono<AppContext>();
 pageRoutes.get('/', (c) => {
   const user = c.get('user');
   if (user) {
-    return c.redirect('/dashboard');
+    return renderUserDashboard(c, 'tokens');
   }
   return c.html(
     renderLanding({
@@ -38,7 +38,7 @@ async function renderUserDashboard(c: Context<AppContext>, viewName: 'tokens' | 
     return c.redirect('/');
   }
   if ((viewName === 'whitelist' || viewName === 'access') && !user.is_admin) {
-    return c.redirect('/tokens');
+    return c.redirect('/');
   }
 
   const profiles = await listProfilesForUser(user.id, c.env);

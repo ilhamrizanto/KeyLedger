@@ -64,7 +64,7 @@ authRoutes.get('/magic', async (c) => {
     const verifiedEmail = await verifyMagicLink(token, email, c.env);
     const dbUser = await findOrCreateMagicLinkUser(verifiedEmail, c.env);
     await loginUser(c, dbUser.id);
-    return c.redirect('/tokens');
+    return c.redirect('/');
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Invalid magic link.';
     return c.redirect('/?error=' + encodeURIComponent(msg));
@@ -124,7 +124,7 @@ authRoutes.get('/callback/:provider', async (c) => {
     const userData = await handleOAuthCallback(provider, code, c.env);
     const dbUser = await findOrCreateOAuthUser(userData, c.env);
     await loginUser(c, dbUser.id);
-    return c.redirect('/tokens');
+    return c.redirect('/');
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'OAuth callback failed.';
     if (msg.includes('not registered in the system whitelist') || msg.includes('Access Denied')) {

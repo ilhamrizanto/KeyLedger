@@ -2,7 +2,7 @@ import { User } from '../types';
 import { renderLayout } from './layout';
 
 export function renderNotFound(user: User | null): string {
-  const href = user ? '/tokens' : '/';
+  const href = '/';
   const label = user ? 'RETURN TO LEDGER' : 'RETURN TO DOSSIER';
 
   return (
